@@ -35,7 +35,7 @@ func main() {
 
 func run(options *options) error {
 	pollTimeout := time.Duration(options.PcapTimeoutMs) * time.Millisecond
-	mysqlConsumer := mysql.NewMySQLConsumer()
+	mysqlConsumer := mysql.NewConsumer()
 	sniffer, err := sniffer.New(options.NetworkInterface, options.BufSizeMb, options.SnapLen, pollTimeout, mysqlConsumer)
 	if err != nil {
 		log.Println("Failed to configure sniffer:")

@@ -63,7 +63,7 @@ const (
 	COM_RESET_CONNECTION
 )
 
-func NewMySQLConsumer() *Parser { return &Parser{} }
+func NewConsumer() *Parser { return &Parser{} }
 
 func (p *Parser) Handle(packetInfo protocols.PacketInfo) {}
 
