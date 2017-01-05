@@ -8,3 +8,7 @@ type PacketInfo struct {
 	Data             []byte
 	Truncated        bool
 }
+
+type Consumer interface {
+	Handle(PacketInfo) // TODO: better name
+}

@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/emfree/honeypacket/protocols/mysql"
 	"github.com/emfree/honeypacket/sniffer"
+
 	flag "github.com/jessevdk/go-flags"
 )
 
@@ -33,7 +35,8 @@ func main() {
 
 func run(options *options) error {
 	pollTimeout := time.Duration(options.PcapTimeoutMs) * time.Millisecond
-	sniffer, err := sniffer.New(options.NetworkInterface, options.BufSizeMb, options.SnapLen, pollTimeout)
+	mysqlConsumer := mysql.NewMySQLConsumer()
+	sniffer, err := sniffer.New(options.NetworkInterface, options.BufSizeMb, options.SnapLen, pollTimeout, mysqlConsumer)
 	if err != nil {
 		log.Println("Failed to configure sniffer:")
 		log.Printf("\t%s\n", err)

@@ -15,7 +15,8 @@ import (
 )
 
 type Sniffer struct {
-	packetHandle packetDataSource
+	packetSource packetDataSource
+	handler      protocols.Consumer
 	iface        string
 }
 
@@ -24,34 +25,34 @@ type packetDataSource interface {
 	SetBPFFilter(filter string) error
 }
 
-type afpacketHandle struct {
+type afpacketSource struct {
 	*afpacket.TPacket
 }
 
-type pcapHandle struct {
+type pcapSource struct {
 	*pcap.Handle
 }
 
-func (a *afpacketHandle) SetBPFFilter(filter string) error { return errors.New("not implemented") }
+func (a *afpacketSource) SetBPFFilter(filter string) error { return errors.New("not implemented") }
 
-func New(iface string, bufferSizeMb int, snaplen int, pollTimeout time.Duration) (*Sniffer, error) {
-	s := &Sniffer{iface: iface}
+func New(iface string, bufferSizeMb int, snaplen int, pollTimeout time.Duration, handler protocols.Consumer) (*Sniffer, error) {
+	s := &Sniffer{iface: iface, handler: handler}
 	if true {
 		var err error
 		if s.iface == "" {
 			s.iface = "any"
 		}
-		s.packetHandle, err = newPcapHandle(s.iface, snaplen, pollTimeout)
+		s.packetSource, err = newPcapHandle(s.iface, snaplen, pollTimeout)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		// not currently supported -- make configurable once we add an implementation of SetBPFFilter
+		// not currently supported -- make configurable once we add an implementation of SetBPFFilter for AF_PACKET sockets
 		frameSize, blockSize, numBlocks, err := afpacketComputeSize(bufferSizeMb, snaplen, os.Getpagesize())
 		if err != nil {
 			return nil, err
 		}
-		s.packetHandle, err = newAfpacketHandle(s.iface, frameSize, blockSize, numBlocks, pollTimeout)
+		s.packetSource, err = newAfpacketHandle(s.iface, frameSize, blockSize, numBlocks, pollTimeout)
 		if err != nil {
 			return nil, err
 		}
@@ -78,7 +79,7 @@ func (sniffer *Sniffer) Run() error {
 	decoder := gopacket.NewDecodingLayerParser(linkLayerType, &sll, &eth, &ip4, &ip6, &tcp, &payload)
 	decodedLayers := make([]gopacket.LayerType, 0, 10)
 	for {
-		packetData, _, err := sniffer.packetHandle.ReadPacketData()
+		packetData, _, err := sniffer.packetSource.ReadPacketData()
 
 		if err == io.EOF {
 			log.Println("EOF") // debug -- better handle this
@@ -118,22 +119,24 @@ func (sniffer *Sniffer) Run() error {
 			}
 		}
 
+		sniffer.handler.Handle(packetInfo)
+
 		log.Println("packet info", packetInfo)
 	}
 	return nil
 }
 
 func (sniffer *Sniffer) SetBPFFilter(filter string) error {
-	return sniffer.packetHandle.SetBPFFilter(filter)
+	return sniffer.packetSource.SetBPFFilter(filter)
 }
 
-func newPcapHandle(iface string, snaplen int, pollTimeout time.Duration) (*pcapHandle, error) {
+func newPcapHandle(iface string, snaplen int, pollTimeout time.Duration) (*pcapSource, error) {
 	h, err := pcap.OpenLive(iface, int32(snaplen), true, pollTimeout)
-	return &pcapHandle{h}, err
+	return &pcapSource{h}, err
 }
 
 func newAfpacketHandle(iface string, frameSize int, blockSize int, numBlocks int,
-	pollTimeout time.Duration) (*afpacketHandle, error) {
+	pollTimeout time.Duration) (*afpacketSource, error) {
 	h, err := afpacket.NewTPacket(
 		afpacket.OptInterface(iface),
 		afpacket.OptFrameSize(frameSize),
@@ -141,7 +144,7 @@ func newAfpacketHandle(iface string, frameSize int, blockSize int, numBlocks int
 		afpacket.OptNumBlocks(numBlocks),
 		afpacket.OptPollTimeout(pollTimeout),
 		afpacket.OptTPacketVersion(afpacket.TPacketVersion2)) // work around https://github.com/google/gopacket/issues/80
-	return &afpacketHandle{h}, err
+	return &afpacketSource{h}, err
 }
 
 func afpacketComputeSize(targetSizeMb int, snaplen int, pageSize int) (
