@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/emfree/honeypacket/protocols/mysql"
 	"github.com/emfree/honeypacket/sniffer"
 
@@ -22,7 +23,7 @@ type options struct {
 }
 
 func main() {
-	log.SetFlags(log.Lshortfile | log.LstdFlags) // debug
+	configureLogging()
 	options, err := parseFlags()
 	if err != nil {
 		os.Exit(1)
@@ -31,6 +32,11 @@ func main() {
 	if err != nil {
 		os.Exit(1)
 	}
+}
+
+func configureLogging() {
+	logrus.SetLevel(logrus.DebugLevel)
+	logrus.SetFormatter(&logrus.JSONFormatter{})
 }
 
 func run(options *options) error {

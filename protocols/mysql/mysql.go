@@ -1,87 +1,248 @@
 package mysql
 
 import (
+	"bytes"
+	"encoding/binary"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"time"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/emfree/honeypacket/protocols"
 )
 
-type MySQLMessage struct {
-	ts            time.Time
-	payloadLength uint32
-	sequenceID    byte
-	command       mySQLCommand
-	query         []byte
+type QueryEvent struct {
+	Timestamp      time.Time
+	TimedOut       bool
+	ResponseTimeMs int
+	Query          []byte
+	RowsSent       int
+	BytesSent      int
+	ColumnsSent    int
+	Error          bool
+	ErrorCode      int
+}
+
+type mySQLPacketHeader struct {
+	PayloadLength    uint32
+	SequenceID       uint8
+	FirstPayloadByte uint8
 }
 
 type Parser struct {
-	offset int
-	state  parseState
+	currentQueryEvent QueryEvent
 }
 
 type parseState int
 
 const (
-	parseStateChompHeader parseState = iota
-	parseStateChompPayload
-)
-
-type mySQLCommand byte
-
-// https://dev.mysql.com/doc/internals/en/text-protocol.html
-const (
-	COM_SLEEP mySQLCommand = iota
-	COM_QUIT
-	COM_INIT_DB
-	COM_QUERY
-	COM_FIELD_LIST
-	COM_CREATE_DB
-	COM_DROP_DB
-	COM_REFRESH
-	COM_SHUTDOWN
-	COM_STATISTICS
-	COM_PROCESS_INFO
-	COM_CONNECT
-	COM_PROCESS_KILL
-	COM_DEBUG
-	COM_PING
-	COM_TIME
-	COM_DELAYED_INSERT
-	COM_CHANGE_USER
-	COM_BINLOG_DUMP
-	COM_TABLE_DUMP
-	COM_CONNECT_OUT
-	COM_REGISTER_SLAVE
-	COM_STMT_EXECUTE
-	COM_STMT_SEND_LONG_DATA
-	COM_STMT_CLOSE
-	COM_STMT_RESET
-	COM_SET_OPTION
-	COM_STMT_FETCH
-	COM_DAEMON
-	COM_BINLOG_DUMP_GTID
-	COM_RESET_CONNECTION
+	parseStateStart parseState = iota
+	parseStateChompColumnDefs
+	parseStateChompRows
 )
 
 func NewConsumer() *Parser { return &Parser{} }
 
-func (p *Parser) Handle(packetInfo protocols.PacketInfo) {}
+func (p *Parser) Handle(packetInfo protocols.PacketInfo) {
+	if packetInfo.DstPort == 3306 { // TODO: use a real criterion here
+		p.parseRequestStream(packetInfo.Data, packetInfo.Timestamp)
+	} else {
+		p.parseResponseStream(packetInfo.Data)
+	}
+}
 
-// TODO: we need parser state across TCP packets
-func (p *Parser) parse(data []byte) error {
-	m := MySQLMessage{}
-	p.offset = 0
-	p.state = parseStateChompHeader
-	for p.offset < len(data) {
-		switch p.state {
-		case parseStateChompHeader:
-			m.payloadLength = uint32(data[p.offset]) + uint32(data[p.offset+1])<<8 + uint32(data[p.offset+2])<<16
-			m.sequenceID = data[p.offset+3]
-			m.command = mySQLCommand(data[p.offset+4])
-			p.offset += 3
-			p.state = parseStateChompPayload
-			// TODO
+// TODO: we need to parse across TCP packets, and handle concurrent streams
+// maybe with the TCP reassembler.
+func (p *Parser) parseRequestStream(data []byte, timestamp time.Time) error {
+	logrus.Debug("Parsing request stream")
+	reader := bytes.NewReader(data)
+	for {
+		header, err := parsePacketHeader(reader)
+		if err != nil {
+			return err
+		}
+		logrus.WithFields(logrus.Fields{"payloadLength": header.PayloadLength, "firstPayloadByte": header.FirstPayloadByte}).Debug("header data")
+		if mySQLCommand(header.FirstPayloadByte) == COM_QUERY {
+			var err error
+			queryLength := int(header.PayloadLength - 1)
+			query, err := readQuery(reader, queryLength)
+			if err != nil {
+				logrus.Error("Error reading query", err)
+				return err
+			}
+			p.currentQueryEvent.Query = query
+			p.currentQueryEvent.Timestamp = timestamp
+			logrus.WithFields(logrus.Fields{"query": string(query)}).Info("Parsed query")
+		} else {
+			logrus.Info(header.FirstPayloadByte, data)
+			// TODO: handle this (non-query packet)
 		}
 	}
-	return nil
+}
+
+func parsePacketHeader(r io.Reader) (header mySQLPacketHeader, err error) {
+	header = mySQLPacketHeader{}
+	buf := make([]byte, 5)
+	n, err := r.Read(buf)
+	if err == io.EOF {
+		return header, err
+	} else if n < 5 || err != nil {
+		logrus.WithFields(logrus.Fields{"header": header, "err": err}).Info("Bad MySQL packet header")
+		return header, err
+	}
+	header.PayloadLength = uint32(buf[0]) + uint32(buf[1])<<8 + uint32(buf[2])<<16
+	header.SequenceID = buf[3]
+	header.FirstPayloadByte = buf[4]
+	return header, nil
+}
+
+func readQuery(r io.Reader, queryLength int) (query []byte, err error) {
+	query = make([]byte, queryLength)
+	bytesRead := 0
+	for bytesRead < queryLength {
+		n, err := r.Read(query[bytesRead:])
+		if err != nil {
+			return nil, err
+		}
+		bytesRead += n
+	}
+	return query, nil
+}
+
+func (p *Parser) parseResponseStream(data []byte) error {
+	reader := bytes.NewReader(data)
+	state := parseStateStart
+	logrus.WithFields(logrus.Fields{"data": data}).Debug("Parsing response packet")
+	for {
+		header, err := parsePacketHeader(reader)
+		if err != nil {
+			logrus.WithError(err).Error("Error parsing packet header")
+			return err
+		}
+		logrus.WithFields(logrus.Fields{
+			"firstPayloadByte": header.FirstPayloadByte,
+			"sequenceID":       header.SequenceID,
+			"payloadLength":    header.PayloadLength,
+			"parserState":      state}).Debug("Parsed response packet header")
+		switch state {
+		case parseStateStart:
+			if header.FirstPayloadByte == OK {
+				err = parseOK(reader, header.PayloadLength)
+			} else if header.FirstPayloadByte == EOF && header.PayloadLength < 9 {
+				err = parseEOF(reader, header.PayloadLength)
+			} else if header.FirstPayloadByte == ERR {
+				err = parseERR(reader, header.PayloadLength)
+			} else {
+				columnCount, err := parseColumnCount(header.FirstPayloadByte, reader, header.PayloadLength)
+				fmt.Println("read column count", columnCount)
+				if err != nil {
+					logrus.WithError(err).Error("Error parsing column count")
+					return err
+				}
+				p.currentQueryEvent.ColumnsSent = int(columnCount)
+				state = parseStateChompColumnDefs
+			}
+		case parseStateChompColumnDefs:
+			if header.FirstPayloadByte == COL_DEF_FIRST_PAYLOAD_BYTE {
+				// This is subtle. A column definition packet always starts with the length-encoded string "def",
+				// i.e., the byte sequence 03 64 65 66
+				//                         |   |  |  |
+				//                     length  d  e  f
+				err = parseColumnDefinition(reader, header.PayloadLength)
+			} else if header.FirstPayloadByte == OK {
+				err = parseOK(reader, header.PayloadLength)
+			} else if header.FirstPayloadByte == EOF {
+				err = parseEOF(reader, header.PayloadLength)
+			} else {
+				state = parseStateChompRows
+				parseRow(reader, header.PayloadLength)
+			}
+		case parseStateChompRows:
+			if header.FirstPayloadByte == OK {
+				err = parseOK(reader, header.PayloadLength)
+				p.publish()
+				state = parseStateStart
+			} else if header.FirstPayloadByte == EOF {
+				err = parseEOF(reader, header.PayloadLength)
+				p.publish()
+				state = parseStateStart
+			} else {
+				parseRow(reader, header.PayloadLength)
+			}
+		}
+		if err != nil {
+			logrus.WithError(err).Error("Error parsing response stream")
+		}
+	}
+}
+
+// TODO: properly consume responses
+func discard(r io.Reader, payloadLength uint32) error {
+	buf := make([]byte, payloadLength-1)
+	_, err := r.Read(buf)
+	return err
+}
+
+func parseOK(r io.Reader, payloadLength uint32) error {
+	logrus.Info("parsing OK")
+	return discard(r, payloadLength)
+}
+
+func parseEOF(r io.Reader, payloadLength uint32) error {
+	logrus.Info("parsing EOF")
+	return discard(r, payloadLength)
+}
+
+func parseERR(r io.Reader, payloadLength uint32) error {
+	logrus.Info("parsing ERR")
+	return discard(r, payloadLength)
+}
+
+func parseColumnCount(firstByte uint8, r io.Reader, payloadLength uint32) (uint64, error) {
+	logrus.Info("parsing column count")
+	return readLengthEncodedInteger(firstByte, r)
+}
+
+func parseColumnDefinition(r io.Reader, payloadLength uint32) error {
+	logrus.Info("parsing column def")
+	return discard(r, payloadLength)
+}
+
+func parseRow(r io.Reader, payloadLength uint32) error {
+	logrus.Info("parsing row")
+	return discard(r, payloadLength)
+}
+
+// https://dev.mysql.com/doc/internals/en/integer.html#packet-Protocol::LengthEncodedInteger
+func readLengthEncodedInteger(firstByte uint8, r io.Reader) (n uint64, err error) {
+	if firstByte <= 0xFB {
+		return uint64(firstByte), nil
+	} else if firstByte == 0xFC {
+		var v uint16
+		err = binary.Read(r, binary.LittleEndian, v)
+		return uint64(v), err
+	} else if firstByte == 0xFD {
+		// Hack to properly parse a three-byte integer
+		var v struct {
+			a uint8
+			b uint16
+		}
+		err = binary.Read(r, binary.LittleEndian, v)
+		return uint64(v.a) + uint64(v.b)<<8, err
+	} else if firstByte == 0xFE {
+		var v uint64
+		err = binary.Read(r, binary.LittleEndian, v)
+		return v, err
+	}
+	return 0, errors.New("Invalid length-encoded integer")
+}
+
+func (p *Parser) publish() {
+	s, err := json.Marshal(&p.currentQueryEvent)
+	if err != nil {
+		logrus.Error("Error marshaling query event", err)
+	}
+	logrus.WithField("event", string(s)).Info("Publishing query event")
 }
