@@ -42,14 +42,13 @@ func configureLogging(debug bool) {
 }
 
 func run(options *GlobalOptions) error {
-	mysqlParserFactory := &mysql.ParserFactory{}
+	mysqlParserFactory := &mysql.ParserFactory{Options: options.MySQL}
 	sniffer, err := sniffer.New(options.NetworkInterface, options.BufSizeMb, options.SnapLen, mysqlParserFactory)
 	if err != nil {
 		log.Println("Failed to configure sniffer:")
 		log.Printf("\t%s\n", err)
 		return err
 	}
-	sniffer.SetBPFFilter("tcp port 3306") // debug
 	log.Println("Listening for traffic")
 	sniffer.Run()
 	return nil

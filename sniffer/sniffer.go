@@ -59,6 +59,12 @@ func New(iface string, bufferSizeMb int, snaplen int, cf protocols.ConsumerFacto
 		}
 	}
 
+	// TODO: support concatenating multiple BPF filters
+	err := s.packetSource.SetBPFFilter(cf.BPFFilter())
+	if err != nil {
+		return nil, err
+	}
+
 	return s, nil
 
 }

@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/google/gopacket"
-	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/tcpassembly"
 	"github.com/honeycombio/honeypacket/protocols"
 )
@@ -36,23 +35,22 @@ type stream struct {
 	key      key
 }
 
-type BidiFactory struct {
+type bidiFactory struct {
 	bidiMap map[key]*BidiStream
 	cf      protocols.ConsumerFactory
 }
 
-func NewBidiFactory(cf protocols.ConsumerFactory) *BidiFactory {
-	return &BidiFactory{
+func NewBidiFactory(cf protocols.ConsumerFactory) *bidiFactory {
+	return &bidiFactory{
 		bidiMap: map[key]*BidiStream{},
 		cf:      cf,
 	}
 }
 
-func (f *BidiFactory) New(net, transport gopacket.Flow) tcpassembly.Stream {
+func (f *bidiFactory) New(net, transport gopacket.Flow) tcpassembly.Stream {
 	fmt.Println("New stream", net, transport)
 	k := key{net, transport}
-	// TODO: inject this condition
-	isClient := transport.Src() == layers.NewTCPPortEndpoint(layers.TCPPort(3306))
+	isClient := f.cf.IsClient(net, transport)
 	s := &stream{key: k, isClient: isClient}
 
 	bd := f.bidiMap[k]
@@ -73,7 +71,7 @@ func (f *BidiFactory) New(net, transport gopacket.Flow) tcpassembly.Stream {
 
 }
 
-func (f *BidiFactory) newBidiStream() *BidiStream {
+func (f *bidiFactory) newBidiStream() *BidiStream {
 	bds := &BidiStream{}
 	bds.consumer = f.cf.New()
 	return bds

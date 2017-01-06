@@ -5,17 +5,52 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/tcpassembly"
 	"github.com/honeycombio/honeypacket/protocols"
 )
 
 type Options struct {
 	Port uint16 `long:"port" description:"MySQL port" default:"3306"`
+}
+
+// ParserFactory implements protocols.ConsumerFactory
+// TODO: this way of setting things up is kind of confusing
+type ParserFactory struct {
+	Options Options
+}
+
+func (pf *ParserFactory) New() protocols.Consumer {
+	return &Parser{options: pf.Options}
+}
+
+func (pf *ParserFactory) IsClient(net, transport gopacket.Flow) bool {
+	return transport.Src() == layers.NewTCPPortEndpoint(layers.TCPPort(pf.Options.Port))
+}
+
+func (pf *ParserFactory) BPFFilter() string {
+	return fmt.Sprintf("tcp port %d", pf.Options.Port)
+}
+
+// Parser implements protocols.Consumer
+type Parser struct {
+	options           Options
+	currentQueryEvent QueryEvent
+}
+
+func (p *Parser) On(isClient bool, r tcpassembly.Reassembly) {
+	if isClient {
+		p.parseResponseStream(r.Bytes, r.Seen)
+	} else {
+		p.parseRequestStream(r.Bytes, r.Seen)
+	}
 }
 
 type QueryEvent struct {
@@ -38,10 +73,6 @@ type mySQLPacket struct {
 
 func (mp *mySQLPacket) FirstPayloadByte() byte { return mp.payload[0] }
 
-type Parser struct {
-	currentQueryEvent QueryEvent
-}
-
 type parseState int
 
 const (
@@ -50,24 +81,7 @@ const (
 	parseStateChompRows
 )
 
-// Implements sniffer.ConsumerFactory
-// TODO... this is all kind of a mess
-type ParserFactory struct{}
-
-func (pf *ParserFactory) New() protocols.Consumer {
-	return &Parser{}
-}
-
-func (p *Parser) On(isClient bool, r tcpassembly.Reassembly) {
-	if isClient {
-		p.parseResponseStream(r.Bytes, r.Seen)
-	} else {
-		p.parseRequestStream(r.Bytes, r.Seen)
-	}
-}
-
-// TODO: we need to parse across TCP packets, and handle concurrent streams
-// maybe with the TCP reassembler.
+// TODO: we need to parse across TCP packets
 func (p *Parser) parseRequestStream(data []byte, timestamp time.Time) error {
 	logrus.Debug("Parsing request stream")
 	reader := bytes.NewReader(data)
