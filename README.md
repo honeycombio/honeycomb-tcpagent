@@ -1,27 +1,15 @@
 
-Honeypacket is a network traffic analysis tool designed to capture database
-traffic.
+Honeypacket captures database network traffic and writes it as structured JSON
+to stdout, enabling query-level visibility with low overhead.
 
-## Development
 
-1. You'll need [Go](https://golang.org/doc/install).
+## Quickstart For Go users
 
-2. Install libpcap and libpcap headers:
-    ```
-    sudo apt-get install -y libpcap0.8 libpcap0.8-dev
-    ```
 
-3. Build the project:
-    ```
-    go build
-    ```
+```
+sudo apt-get install -y libpcap0.8 libpcap0.8-dev
+go get github.com/emfree/honeypacket
+sudo setcap cap_net_raw=eip $GOPATH/bin/honeypacket
+```
 
-4. Run the `honeypacket` binary as root, or give it CAP_NET_RAW capability:
-    ```
-    sudo setcap cap_net_raw=eip ./honeypacket
-    ```
-
-5. Start capturing traffic:
-    ```
-    ./honeytail
-    ```
+Then run `honeypacket` to start capturing traffic.
