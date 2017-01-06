@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"time"
 
@@ -17,7 +16,8 @@ type QueryEvent struct {
 	Timestamp      time.Time
 	TimedOut       bool
 	ResponseTimeMs int
-	Query          []byte
+	RawQuery       []byte
+	Query          string
 	RowsSent       int
 	BytesSent      int
 	ColumnsSent    int
@@ -72,7 +72,8 @@ func (p *Parser) parseRequestStream(data []byte, timestamp time.Time) error {
 				logrus.Error("Error reading query", err)
 				return err
 			}
-			p.currentQueryEvent.Query = query
+			p.currentQueryEvent.RawQuery = query
+			p.currentQueryEvent.Query = string(query) // TODO: can this fail in any way with whacky character sets?
 			p.currentQueryEvent.Timestamp = timestamp
 			logrus.WithFields(logrus.Fields{"query": string(query)}).Info("Parsed query")
 		} else {
@@ -129,14 +130,13 @@ func (p *Parser) parseResponseStream(data []byte) error {
 		switch state {
 		case parseStateStart:
 			if header.FirstPayloadByte == OK {
-				err = parseOK(reader, header.PayloadLength)
+				err = p.parseOK(reader, header.PayloadLength)
 			} else if header.FirstPayloadByte == EOF && header.PayloadLength < 9 {
-				err = parseEOF(reader, header.PayloadLength)
+				err = p.parseEOF(reader, header.PayloadLength)
 			} else if header.FirstPayloadByte == ERR {
-				err = parseERR(reader, header.PayloadLength)
+				err = p.parseERR(reader, header.PayloadLength)
 			} else {
-				columnCount, err := parseColumnCount(header.FirstPayloadByte, reader, header.PayloadLength)
-				fmt.Println("read column count", columnCount)
+				columnCount, err := p.parseColumnCount(header.FirstPayloadByte, reader, header.PayloadLength)
 				if err != nil {
 					logrus.WithError(err).Error("Error parsing column count")
 					return err
@@ -147,29 +147,32 @@ func (p *Parser) parseResponseStream(data []byte) error {
 		case parseStateChompColumnDefs:
 			if header.FirstPayloadByte == COL_DEF_FIRST_PAYLOAD_BYTE {
 				// This is subtle. A column definition packet always starts with the length-encoded string "def",
-				// i.e., the byte sequence 03 64 65 66
+				// i.e., the byte sequence 03 64 65 66.
 				//                         |   |  |  |
 				//                     length  d  e  f
-				err = parseColumnDefinition(reader, header.PayloadLength)
+
+				// TODO: can we actually reliably distinguish this from the case that (1) there's no EOF packet
+				// between the column defs and the rows, and (2) the first row result start with 0x03?
+				err = p.parseColumnDefinition(reader, header.PayloadLength)
 			} else if header.FirstPayloadByte == OK {
-				err = parseOK(reader, header.PayloadLength)
+				err = p.parseOK(reader, header.PayloadLength)
 			} else if header.FirstPayloadByte == EOF {
-				err = parseEOF(reader, header.PayloadLength)
+				err = p.parseEOF(reader, header.PayloadLength)
 			} else {
 				state = parseStateChompRows
-				parseRow(reader, header.PayloadLength)
+				p.parseRow(reader, header.PayloadLength)
 			}
 		case parseStateChompRows:
 			if header.FirstPayloadByte == OK {
-				err = parseOK(reader, header.PayloadLength)
-				p.publish()
+				err = p.parseOK(reader, header.PayloadLength)
+				p.QueryEventDone()
 				state = parseStateStart
 			} else if header.FirstPayloadByte == EOF {
-				err = parseEOF(reader, header.PayloadLength)
-				p.publish()
+				err = p.parseEOF(reader, header.PayloadLength)
+				p.QueryEventDone()
 				state = parseStateStart
 			} else {
-				parseRow(reader, header.PayloadLength)
+				p.parseRow(reader, header.PayloadLength)
 			}
 		}
 		if err != nil {
@@ -185,34 +188,39 @@ func discard(r io.Reader, payloadLength uint32) error {
 	return err
 }
 
-func parseOK(r io.Reader, payloadLength uint32) error {
+func (p *Parser) parseOK(r io.Reader, payloadLength uint32) error {
 	logrus.Info("parsing OK")
 	return discard(r, payloadLength)
 }
 
-func parseEOF(r io.Reader, payloadLength uint32) error {
+func (p *Parser) parseEOF(r io.Reader, payloadLength uint32) error {
 	logrus.Info("parsing EOF")
 	return discard(r, payloadLength)
 }
 
-func parseERR(r io.Reader, payloadLength uint32) error {
+func (p *Parser) parseERR(r io.Reader, payloadLength uint32) error {
 	logrus.Info("parsing ERR")
 	return discard(r, payloadLength)
 }
 
-func parseColumnCount(firstByte uint8, r io.Reader, payloadLength uint32) (uint64, error) {
+func (p *Parser) parseColumnCount(firstByte uint8, r io.Reader, payloadLength uint32) (uint64, error) {
 	logrus.Info("parsing column count")
 	return readLengthEncodedInteger(firstByte, r)
 }
 
-func parseColumnDefinition(r io.Reader, payloadLength uint32) error {
+func (p *Parser) parseColumnDefinition(r io.Reader, payloadLength uint32) error {
 	logrus.Info("parsing column def")
 	return discard(r, payloadLength)
 }
 
-func parseRow(r io.Reader, payloadLength uint32) error {
+func (p *Parser) parseRow(r io.Reader, payloadLength uint32) error {
 	logrus.Info("parsing row")
-	return discard(r, payloadLength)
+	err := discard(r, payloadLength)
+	if err != nil {
+		return err
+	}
+	p.currentQueryEvent.RowsSent += 1
+	return nil
 }
 
 // https://dev.mysql.com/doc/internals/en/integer.html#packet-Protocol::LengthEncodedInteger
@@ -239,10 +247,11 @@ func readLengthEncodedInteger(firstByte uint8, r io.Reader) (n uint64, err error
 	return 0, errors.New("Invalid length-encoded integer")
 }
 
-func (p *Parser) publish() {
+func (p *Parser) QueryEventDone() {
 	s, err := json.Marshal(&p.currentQueryEvent)
 	if err != nil {
 		logrus.Error("Error marshaling query event", err)
 	}
-	logrus.WithField("event", string(s)).Info("Publishing query event")
+	logrus.WithField("event", string(s)).Info("Publishing query event") // TODO: actually publish to stdout stream
+	p.currentQueryEvent = QueryEvent{}
 }
