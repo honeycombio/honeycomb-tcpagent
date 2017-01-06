@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/google/gopacket/tcpassembly"
 )
 
 type PacketInfo struct {
@@ -26,5 +27,9 @@ func (p *PacketInfo) ToFields() logrus.Fields {
 }
 
 type Consumer interface {
-	Handle(PacketInfo) // TODO: better name
+	On(bool, tcpassembly.Reassembly)
+}
+
+type ConsumerFactory interface {
+	New() Consumer
 }

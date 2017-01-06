@@ -44,8 +44,8 @@ func configureLogging(debug bool) {
 
 func run(options *options) error {
 	pollTimeout := time.Duration(options.PcapTimeoutMs) * time.Millisecond
-	mysqlConsumer := mysql.NewConsumer()
-	sniffer, err := sniffer.New(options.NetworkInterface, options.BufSizeMb, options.SnapLen, pollTimeout, mysqlConsumer)
+	mysqlParserFactory := &mysql.ParserFactory{}
+	sniffer, err := sniffer.New(options.NetworkInterface, options.BufSizeMb, options.SnapLen, pollTimeout, mysqlParserFactory)
 	if err != nil {
 		log.Println("Failed to configure sniffer:")
 		log.Printf("\t%s\n", err)

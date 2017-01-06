@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/google/gopacket/tcpassembly"
 	"github.com/honeycombio/honeypacket/protocols"
 )
 
@@ -45,13 +46,27 @@ const (
 	parseStateChompRows
 )
 
-func NewConsumer() *Parser { return &Parser{} }
+// Implements sniffer.ConsumerFactory
+// TODO... this is all kind of a mess
+type ParserFactory struct{}
+
+func (pf *ParserFactory) New() protocols.Consumer {
+	return &Parser{}
+}
 
 func (p *Parser) Handle(packetInfo protocols.PacketInfo) {
 	if packetInfo.DstPort == 3306 { // TODO: use a real criterion here
 		p.parseRequestStream(packetInfo.Data, packetInfo.Timestamp)
 	} else {
 		p.parseResponseStream(packetInfo.Data, packetInfo.Timestamp)
+	}
+}
+
+func (p *Parser) On(isClient bool, r tcpassembly.Reassembly) {
+	if isClient {
+		p.parseResponseStream(r.Bytes, r.Seen)
+	} else {
+		p.parseRequestStream(r.Bytes, r.Seen)
 	}
 }
 
