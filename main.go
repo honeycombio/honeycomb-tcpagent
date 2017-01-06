@@ -52,6 +52,7 @@ func run(options *options) error {
 		return err
 	}
 	sniffer.SetBPFFilter("tcp port 3306") // debug
+	log.Println("Listening for traffic")
 	sniffer.Run()
 	return nil
 }
