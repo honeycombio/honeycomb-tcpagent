@@ -11,6 +11,7 @@ import (
 	"github.com/google/gopacket/afpacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
+	"github.com/google/gopacket/tcpassembly"
 	"github.com/honeycombio/honeypacket/protocols"
 )
 
@@ -70,6 +71,11 @@ func (sniffer *Sniffer) Run() error {
 		linkLayerType = layers.LayerTypeEthernet
 
 	}
+
+	factory := &bidiFactory{map[key]*BidiStream{}}
+	streamPool := tcpassembly.NewStreamPool(factory)
+	assembler := tcpassembly.NewAssembler(streamPool)
+
 	var sll layers.LinuxSLL
 	var eth layers.Ethernet
 	var ip4 layers.IPv4
@@ -104,13 +110,16 @@ func (sniffer *Sniffer) Run() error {
 
 		packetInfo.Truncated = decoder.Truncated
 		packetInfo.Timestamp = ci.Timestamp
+		var netFlow gopacket.Flow
 
 		for _, typ := range decodedLayers {
 			switch typ {
 			case layers.LayerTypeIPv4:
 				packetInfo.SrcIP, packetInfo.DstIP = ip4.SrcIP, ip4.DstIP
+				netFlow = ip4.NetworkFlow()
 			case layers.LayerTypeIPv6:
 				packetInfo.SrcIP, packetInfo.DstIP = ip6.SrcIP, ip6.DstIP
+				netFlow = ip6.NetworkFlow()
 			case layers.LayerTypeTCP:
 				packetInfo.SrcPort, packetInfo.DstPort = uint16(tcp.SrcPort), uint16(tcp.DstPort)
 			case gopacket.LayerTypePayload:
@@ -119,6 +128,7 @@ func (sniffer *Sniffer) Run() error {
 		}
 
 		logrus.WithFields(packetInfo.ToFields()).Debug("Parsed packet data")
+		assembler.AssembleWithTimestamp(netFlow, &tcp, ci.Timestamp)
 		sniffer.handler.Handle(packetInfo)
 	}
 	return nil
