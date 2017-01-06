@@ -36,7 +36,7 @@ type pcapSource struct {
 
 func (a *afpacketSource) SetBPFFilter(filter string) error { return errors.New("not implemented") }
 
-func New(iface string, bufferSizeMb int, snaplen int, pollTimeout time.Duration, cf protocols.ConsumerFactory) (*Sniffer, error) {
+func New(iface string, bufferSizeMb int, snaplen int, cf protocols.ConsumerFactory) (*Sniffer, error) {
 	s := &Sniffer{iface: iface, consumerFactory: cf}
 	if true {
 		var err error
@@ -53,7 +53,7 @@ func New(iface string, bufferSizeMb int, snaplen int, pollTimeout time.Duration,
 		if err != nil {
 			return nil, err
 		}
-		s.packetSource, err = newAfpacketHandle(s.iface, frameSize, blockSize, numBlocks, pollTimeout)
+		s.packetSource, err = newAfpacketHandle(s.iface, frameSize, blockSize, numBlocks, pcap.BlockForever)
 		if err != nil {
 			return nil, err
 		}

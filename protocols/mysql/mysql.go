@@ -14,6 +14,10 @@ import (
 	"github.com/honeycombio/honeypacket/protocols"
 )
 
+type Options struct {
+	Port uint16 `long:"port" description:"MySQL port" default:"3306"`
+}
+
 type QueryEvent struct {
 	Timestamp      time.Time
 	TimedOut       bool

@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/honeycombio/honeypacket/protocols/mysql"
@@ -14,13 +13,13 @@ import (
 	flag "github.com/jessevdk/go-flags"
 )
 
-type options struct {
-	Port             uint16 `short:"p" long:"port" description:"Port to listen on"`
-	NetworkInterface string `short:"i" long:"interface" description:"Network interface to listen on"`
-	PcapTimeoutMs    int64  `long:"timeout" description:"Pcap timeout in milliseconds" default:"1000"`
-	BufSizeMb        int    `long:"bufsize" description:"AF_PACKET buffer size in megabytes" default:"30"`
-	SnapLen          int    `long:"snaplen" default:"65535"`
-	Debug            bool   `long:"debug"`
+type GlobalOptions struct {
+	Help             bool          `short:"h" long:"help" description:"Show this help message"`
+	NetworkInterface string        `short:"i" long:"interface" description:"Network interface to listen on"`
+	BufSizeMb        int           `long:"bufsize" description:"AF_PACKET buffer size in megabytes" default:"30"`
+	SnapLen          int           `long:"snaplen" default:"65535"`
+	Debug            bool          `long:"debug"`
+	MySQL            mysql.Options `group:"MySQL parser options" namespace:"mysql"`
 }
 
 func main() {
@@ -42,10 +41,9 @@ func configureLogging(debug bool) {
 	logrus.SetFormatter(&logrus.JSONFormatter{})
 }
 
-func run(options *options) error {
-	pollTimeout := time.Duration(options.PcapTimeoutMs) * time.Millisecond
+func run(options *GlobalOptions) error {
 	mysqlParserFactory := &mysql.ParserFactory{}
-	sniffer, err := sniffer.New(options.NetworkInterface, options.BufSizeMb, options.SnapLen, pollTimeout, mysqlParserFactory)
+	sniffer, err := sniffer.New(options.NetworkInterface, options.BufSizeMb, options.SnapLen, mysqlParserFactory)
 	if err != nil {
 		log.Println("Failed to configure sniffer:")
 		log.Printf("\t%s\n", err)
@@ -57,14 +55,17 @@ func run(options *options) error {
 	return nil
 }
 
-func parseFlags() (*options, error) {
-	var options options
+func parseFlags() (*GlobalOptions, error) {
+	var options GlobalOptions
 	flagParser := flag.NewParser(&options, flag.Default)
 	extraArgs, err := flagParser.Parse()
+
 	if err != nil {
-		log.Println("Failed to parse options:")
-		log.Printf("\t%s\n", err)
-		return nil, err
+		if flagErr, ok := err.(*flag.Error); ok && flagErr.Type == flag.ErrHelp {
+			os.Exit(0)
+		} else {
+			os.Exit(1)
+		}
 	} else if len(extraArgs) != 0 {
 		log.Printf("Unexpected extra arguments: %s", strings.Join(extraArgs, " "))
 		return nil, errors.New("")
