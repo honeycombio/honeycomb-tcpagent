@@ -85,7 +85,7 @@ func (sniffer *Sniffer) Run() error {
 			logrus.Info("EOF") // debug -- better handle this
 			break
 		} else if err != nil {
-			logrus.Info("Err:", err)
+			logrus.WithError(err).Info("Error reading packet")
 			continue
 		}
 
@@ -96,7 +96,7 @@ func (sniffer *Sniffer) Run() error {
 		err = decoder.DecodeLayers(packetData, &decodedLayers)
 
 		if err != nil {
-			logrus.Info("Err:", err)
+			logrus.WithError(err).Error("Error decoding packet")
 			continue
 		}
 

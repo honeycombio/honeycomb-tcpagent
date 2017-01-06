@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"time"
 
 	"github.com/Sirupsen/logrus"
@@ -15,8 +16,7 @@ import (
 type QueryEvent struct {
 	Timestamp      time.Time
 	TimedOut       bool
-	ResponseTimeMs int
-	RawQuery       []byte
+	ResponseTimeMs int64
 	Query          string
 	RowsSent       int
 	BytesSent      int
@@ -27,7 +27,7 @@ type QueryEvent struct {
 
 type mySQLPacket struct {
 	PayloadLength int
-	SequenceID    uint8
+	SequenceID    byte
 	payload       []byte
 }
 
@@ -40,7 +40,7 @@ type Parser struct {
 type parseState int
 
 const (
-	parseStateStart parseState = iota
+	parseStateChompFirstPacket parseState = iota
 	parseStateChompColumnDefs
 	parseStateChompRows
 )
@@ -51,7 +51,7 @@ func (p *Parser) Handle(packetInfo protocols.PacketInfo) {
 	if packetInfo.DstPort == 3306 { // TODO: use a real criterion here
 		p.parseRequestStream(packetInfo.Data, packetInfo.Timestamp)
 	} else {
-		p.parseResponseStream(packetInfo.Data)
+		p.parseResponseStream(packetInfo.Data, packetInfo.Timestamp)
 	}
 }
 
@@ -68,7 +68,7 @@ func (p *Parser) parseRequestStream(data []byte, timestamp time.Time) error {
 		if packet.FirstPayloadByte() == COM_QUERY {
 			p.currentQueryEvent.Query = string(packet.payload[1:])
 			p.currentQueryEvent.Timestamp = timestamp
-			logrus.WithFields(logrus.Fields{"query": p.currentQueryEvent.Query}).Info("Parsed query")
+			logrus.WithFields(logrus.Fields{"query": p.currentQueryEvent.Query}).Debug("Parsed query")
 		} else {
 			logrus.WithFields(logrus.Fields{"command": packet.payload[0]}).Debug("Skipping non-QUERY command")
 			// TODO: handle some non-query packets
@@ -82,7 +82,7 @@ func readPacket(r io.Reader) (*mySQLPacket, error) {
 	if err == io.EOF {
 		return nil, err
 	} else if err != nil {
-		logrus.WithFields(logrus.Fields{"header": buf, "err": err}).Info("Bad MySQL packet header")
+		logrus.WithFields(logrus.Fields{"header": buf, "err": err}).Debug("Bad MySQL packet header")
 		return nil, err
 	}
 	p := mySQLPacket{}
@@ -111,28 +111,32 @@ func readPacket(r io.Reader) (*mySQLPacket, error) {
 	return &p, nil
 }
 
-func (p *Parser) parseResponseStream(data []byte) error {
+func (p *Parser) parseResponseStream(data []byte, timestamp time.Time) error {
 	reader := bytes.NewReader(data)
-	state := parseStateStart
+	state := parseStateChompFirstPacket
 	logrus.WithFields(logrus.Fields{"data": data}).Debug("Parsing response packet")
 	for {
 		packet, err := readPacket(reader)
 		if err != nil {
-			logrus.WithError(err).Error("Error parsing packet")
+			if err != io.EOF {
+				logrus.WithFields(logrus.Fields{"err": err, "state": state}).Error("Error parsing packet")
+			}
 			return err
 		}
 		logrus.WithFields(logrus.Fields{
-			"firstPayloadByte": packet.FirstPayloadByte,
+			"firstPayloadByte": packet.FirstPayloadByte(),
 			"sequenceID":       packet.SequenceID,
 			"payloadLength":    packet.PayloadLength,
 			"parserState":      state}).Debug("Parsed response packet")
 		switch state {
-		case parseStateStart:
+		case parseStateChompFirstPacket:
 			if packet.FirstPayloadByte() == OK {
 			} else if packet.FirstPayloadByte() == EOF && packet.PayloadLength < 9 {
 				// TODO: parse EOF packet contents
 			} else if packet.FirstPayloadByte() == ERR {
 				p.currentQueryEvent.Error = true
+				p.QueryEventDone()
+				state = parseStateChompFirstPacket
 				// TODO: parse error packet contents
 			} else {
 				columnCount, err := readLengthEncodedInteger(packet.FirstPayloadByte(), packet.payload[1:])
@@ -164,14 +168,11 @@ func (p *Parser) parseResponseStream(data []byte) error {
 				p.currentQueryEvent.RowsSent++
 			}
 		case parseStateChompRows:
-			if packet.FirstPayloadByte() == OK {
+			if packet.FirstPayloadByte() == OK || packet.FirstPayloadByte() == EOF {
 				// TODO: parse OK packet contents
+				p.currentQueryEvent.ResponseTimeMs = timestamp.Sub(p.currentQueryEvent.Timestamp).Nanoseconds() / 1e6
 				p.QueryEventDone()
-				state = parseStateStart
-			} else if packet.FirstPayloadByte() == EOF {
-				// TODO: parse EOF packet contents
-				p.QueryEventDone()
-				state = parseStateStart
+				state = parseStateChompFirstPacket
 			} else {
 				p.currentQueryEvent.RowsSent++
 				// TODO: parse row packet contents
@@ -213,6 +214,7 @@ func (p *Parser) QueryEventDone() {
 	if err != nil {
 		logrus.Error("Error marshaling query event", err)
 	}
-	logrus.WithField("event", string(s)).Info("Publishing query event") // TODO: actually publish to stdout stream
+	io.WriteString(os.Stdout, string(s))
+	io.WriteString(os.Stdout, "\n")
 	p.currentQueryEvent = QueryEvent{}
 }

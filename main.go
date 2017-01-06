@@ -20,22 +20,25 @@ type options struct {
 	PcapTimeoutMs    int64  `long:"timeout" description:"Pcap timeout in milliseconds" default:"1000"`
 	BufSizeMb        int    `long:"bufsize" description:"AF_PACKET buffer size in megabytes" default:"30"`
 	SnapLen          int    `long:"snaplen" default:"65535"`
+	Debug            bool   `long:"debug"`
 }
 
 func main() {
-	configureLogging()
 	options, err := parseFlags()
 	if err != nil {
 		os.Exit(1)
 	}
+	configureLogging(options.Debug)
 	err = run(options)
 	if err != nil {
 		os.Exit(1)
 	}
 }
 
-func configureLogging() {
-	logrus.SetLevel(logrus.DebugLevel)
+func configureLogging(debug bool) {
+	if debug {
+		logrus.SetLevel(logrus.DebugLevel)
+	}
 	logrus.SetFormatter(&logrus.JSONFormatter{})
 }
 
