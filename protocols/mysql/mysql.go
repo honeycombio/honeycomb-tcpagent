@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/emfree/honeypacket/protocols"
+	"github.com/honeycombio/honeypacket/protocols"
 )
 
 type QueryEvent struct {

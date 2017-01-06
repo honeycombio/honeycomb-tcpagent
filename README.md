@@ -9,7 +9,7 @@ to stdout, enabling query-level visibility with low overhead.
 
 ```
 sudo apt-get install -y libpcap0.8 libpcap0.8-dev
-go get github.com/emfree/honeypacket
+go get github.com/honeycombio/honeypacket
 sudo setcap cap_net_raw=eip $GOPATH/bin/honeypacket
 ```
 

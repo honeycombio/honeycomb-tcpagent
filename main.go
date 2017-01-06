@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/emfree/honeypacket/protocols/mysql"
-	"github.com/emfree/honeypacket/sniffer"
+	"github.com/honeycombio/honeypacket/protocols/mysql"
+	"github.com/honeycombio/honeypacket/sniffer"
 
 	flag "github.com/jessevdk/go-flags"
 )

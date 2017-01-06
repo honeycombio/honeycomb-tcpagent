@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/emfree/honeypacket/protocols"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/afpacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
+	"github.com/honeycombio/honeypacket/protocols"
 )
 
 type Sniffer struct {
