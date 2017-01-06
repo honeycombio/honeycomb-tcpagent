@@ -1,10 +1,8 @@
 package mysql
 
-type mySQLCommand byte
-
 // https://dev.mysql.com/doc/internals/en/text-protocol.html
 const (
-	COM_SLEEP mySQLCommand = iota
+	COM_SLEEP byte = iota
 	COM_QUIT
 	COM_INIT_DB
 	COM_QUERY
@@ -40,4 +38,4 @@ const (
 const OK uint8 = 0x00
 const ERR uint8 = 0xFF
 const EOF uint8 = 0xFE
-const COL_DEF_FIRST_PAYLOAD_BYTE = 0x03
+const COL_DEF_FIRST_PAYLOAD_BYTE uint8 = 0x03
