@@ -84,6 +84,7 @@ func (sniffer *Sniffer) Run() error {
 	var payload gopacket.Payload
 	decoder := gopacket.NewDecodingLayerParser(linkLayerType, &sll, &eth, &ip4, &ip6, &tcp, &payload)
 	decodedLayers := make([]gopacket.LayerType, 0, 10)
+loop:
 	for {
 		packetData, ci, err := sniffer.packetSource.ReadPacketData()
 
@@ -106,30 +107,25 @@ func (sniffer *Sniffer) Run() error {
 			continue
 		}
 
-		packetInfo := protocols.PacketInfo{}
-
-		packetInfo.Truncated = decoder.Truncated
-		packetInfo.Timestamp = ci.Timestamp
 		var netFlow gopacket.Flow
+		foundNetLayer := false
 
 		for _, typ := range decodedLayers {
 			switch typ {
 			case layers.LayerTypeIPv4:
-				packetInfo.SrcIP, packetInfo.DstIP = ip4.SrcIP, ip4.DstIP
 				netFlow = ip4.NetworkFlow()
+				foundNetLayer = true
 			case layers.LayerTypeIPv6:
-				packetInfo.SrcIP, packetInfo.DstIP = ip6.SrcIP, ip6.DstIP
 				netFlow = ip6.NetworkFlow()
+				foundNetLayer = true
 			case layers.LayerTypeTCP:
-				packetInfo.SrcPort, packetInfo.DstPort = uint16(tcp.SrcPort), uint16(tcp.DstPort)
-			case gopacket.LayerTypePayload:
-				packetInfo.Data = payload
+				if foundNetLayer {
+					assembler.AssembleWithTimestamp(netFlow, &tcp, ci.Timestamp)
+					continue loop
+				}
 			}
 		}
-
-		logrus.WithFields(packetInfo.ToFields()).Debug("Parsed packet data")
-		assembler.AssembleWithTimestamp(netFlow, &tcp, ci.Timestamp)
-		//sniffer.handler.Handle(packetInfo)
+		logrus.WithFields(logrus.Fields{"decodedLayers": decodedLayers}).Debug("Couldn't decode packet, ignoring")
 	}
 	return nil
 }

@@ -54,14 +54,6 @@ func (pf *ParserFactory) New() protocols.Consumer {
 	return &Parser{}
 }
 
-func (p *Parser) Handle(packetInfo protocols.PacketInfo) {
-	if packetInfo.DstPort == 3306 { // TODO: use a real criterion here
-		p.parseRequestStream(packetInfo.Data, packetInfo.Timestamp)
-	} else {
-		p.parseResponseStream(packetInfo.Data, packetInfo.Timestamp)
-	}
-}
-
 func (p *Parser) On(isClient bool, r tcpassembly.Reassembly) {
 	if isClient {
 		p.parseResponseStream(r.Bytes, r.Seen)
