@@ -122,9 +122,6 @@ func readPacket(r io.Reader) (*mySQLPacket, error) {
 	bytesRead := 0
 	for {
 		n, err := r.Read(p.payload[bytesRead:])
-		if err != nil {
-			return nil, err
-		}
 		bytesRead += n
 		if bytesRead == p.PayloadLength {
 			break
