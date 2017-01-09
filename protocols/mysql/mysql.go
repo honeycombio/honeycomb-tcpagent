@@ -13,7 +13,6 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
-	"github.com/google/gopacket/tcpassembly"
 	"github.com/honeycombio/honeypacket/protocols"
 )
 
@@ -27,8 +26,11 @@ type ParserFactory struct {
 	Options Options
 }
 
-func (pf *ParserFactory) New() protocols.Consumer {
-	return &Parser{options: pf.Options}
+func (pf *ParserFactory) New(net, transport gopacket.Flow) protocols.Consumer {
+	return &Parser{
+		options:   pf.Options,
+		net:       net,
+		transport: transport}
 }
 
 func (pf *ParserFactory) IsClient(net, transport gopacket.Flow) bool {
@@ -42,14 +44,16 @@ func (pf *ParserFactory) BPFFilter() string {
 // Parser implements protocols.Consumer
 type Parser struct {
 	options           Options
+	net, transport    gopacket.Flow
 	currentQueryEvent QueryEvent
+	state             parseState
 }
 
-func (p *Parser) On(isClient bool, r tcpassembly.Reassembly) {
+func (p *Parser) On(isClient bool, ts time.Time, r io.Reader) {
 	if isClient {
-		p.parseResponseStream(r.Bytes, r.Seen)
+		p.parseResponseStream(r, ts)
 	} else {
-		p.parseRequestStream(r.Bytes, r.Seen)
+		p.parseRequestStream(r, ts)
 	}
 }
 
@@ -81,12 +85,16 @@ const (
 	parseStateChompRows
 )
 
-// TODO: we need to parse across TCP packets
-func (p *Parser) parseRequestStream(data []byte, timestamp time.Time) error {
+var stateMap = map[parseState]string{
+	0: "parseStateChompFirstPacket",
+	1: "parseStateChompColumnDefs",
+	2: "parseStateChompRows",
+}
+
+func (p *Parser) parseRequestStream(r io.Reader, timestamp time.Time) error {
 	logrus.Debug("Parsing request stream")
-	reader := bytes.NewReader(data)
 	for {
-		packet, err := readPacket(reader)
+		packet, err := readPacket(r)
 		if err != nil {
 			return err
 		}
@@ -96,7 +104,7 @@ func (p *Parser) parseRequestStream(data []byte, timestamp time.Time) error {
 			logrus.WithFields(logrus.Fields{"query": p.currentQueryEvent.Query}).Debug("Parsed query")
 		} else {
 			logrus.WithFields(logrus.Fields{"command": packet.payload[0]}).Debug("Skipping non-QUERY command")
-			// TODO: handle some non-query packets
+			// TODO: usefully handle some non-query packets
 		}
 	}
 }
@@ -133,32 +141,35 @@ func readPacket(r io.Reader) (*mySQLPacket, error) {
 	return &p, nil
 }
 
-func (p *Parser) parseResponseStream(data []byte, timestamp time.Time) error {
-	reader := bytes.NewReader(data)
-	state := parseStateChompFirstPacket
-	logrus.WithFields(logrus.Fields{"data": data}).Debug("Parsing response packet")
+func (p *Parser) parseResponseStream(r io.Reader, timestamp time.Time) error {
+	logrus.Debug("Parsing response stream")
 	for {
-		packet, err := readPacket(reader)
+		packet, err := readPacket(r)
 		if err != nil {
 			if err != io.EOF {
-				logrus.WithFields(logrus.Fields{"err": err, "state": state}).Error("Error parsing packet")
+				logrus.WithFields(logrus.Fields{
+					"err":   err,
+					"state": p.state}).Error("Error parsing packet")
 			}
 			return err
 		}
 		logrus.WithFields(logrus.Fields{
+			"flow":             p.transport.String(),
 			"firstPayloadByte": packet.FirstPayloadByte(),
 			"sequenceID":       packet.SequenceID,
 			"payloadLength":    packet.PayloadLength,
-			"parserState":      state}).Debug("Parsed response packet")
-		switch state {
+			"parserState":      stateMap[p.state]}).Debug("Parsed response packet")
+		switch p.state {
 		case parseStateChompFirstPacket:
 			if packet.FirstPayloadByte() == OK {
+				// TODO: parse OK packet contents
+				p.QueryEventDone()
 			} else if packet.FirstPayloadByte() == EOF && packet.PayloadLength < 9 {
 				// TODO: parse EOF packet contents
 			} else if packet.FirstPayloadByte() == ERR {
 				p.currentQueryEvent.Error = true
 				p.QueryEventDone()
-				state = parseStateChompFirstPacket
+				p.state = parseStateChompFirstPacket
 				// TODO: parse error packet contents
 			} else {
 				columnCount, err := readLengthEncodedInteger(packet.FirstPayloadByte(), packet.payload[1:])
@@ -167,7 +178,7 @@ func (p *Parser) parseResponseStream(data []byte, timestamp time.Time) error {
 					return err
 				}
 				p.currentQueryEvent.ColumnsSent = int(columnCount)
-				state = parseStateChompColumnDefs
+				p.state = parseStateChompColumnDefs
 			}
 		case parseStateChompColumnDefs:
 			if packet.FirstPayloadByte() == COL_DEF_FIRST_PAYLOAD_BYTE {
@@ -183,10 +194,11 @@ func (p *Parser) parseResponseStream(data []byte, timestamp time.Time) error {
 			} else if packet.FirstPayloadByte() == OK {
 				// TODO: parse OK packet contents
 			} else if packet.FirstPayloadByte() == EOF && packet.PayloadLength < 9 {
+				p.state = parseStateChompRows
 				// TODO: parse EOF packet contents
 			} else {
 				// Switch to parsing row packets
-				state = parseStateChompRows
+				p.state = parseStateChompRows
 				p.currentQueryEvent.RowsSent++
 			}
 		case parseStateChompRows:
@@ -194,7 +206,7 @@ func (p *Parser) parseResponseStream(data []byte, timestamp time.Time) error {
 				// TODO: parse OK packet contents
 				p.currentQueryEvent.ResponseTimeMs = timestamp.Sub(p.currentQueryEvent.Timestamp).Nanoseconds() / 1e6
 				p.QueryEventDone()
-				state = parseStateChompFirstPacket
+				p.state = parseStateChompFirstPacket
 			} else {
 				p.currentQueryEvent.RowsSent++
 				// TODO: parse row packet contents
@@ -239,4 +251,5 @@ func (p *Parser) QueryEventDone() {
 	io.WriteString(os.Stdout, string(s))
 	io.WriteString(os.Stdout, "\n")
 	p.currentQueryEvent = QueryEvent{}
+	p.state = parseStateChompFirstPacket
 }
