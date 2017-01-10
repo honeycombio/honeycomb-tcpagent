@@ -118,7 +118,8 @@ func (f *bidiFactory) New(net, transport gopacket.Flow) tcpassembly.Stream {
 
 func (bf *bidiFactory) newBidiStream(net, transport gopacket.Flow) *BidiStream {
 	b := &BidiStream{}
-	b.consumer = bf.cf.New(net, transport)
+	flow := protocols.NewIPPortTuple(net, transport)
+	b.consumer = bf.cf.New(flow)
 	return b
 }
 

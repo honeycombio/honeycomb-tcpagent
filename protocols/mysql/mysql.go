@@ -26,11 +26,11 @@ type ParserFactory struct {
 	Options Options
 }
 
-func (pf *ParserFactory) New(net, transport gopacket.Flow) protocols.Consumer {
+func (pf *ParserFactory) New(flow protocols.IPPortTuple) protocols.Consumer {
 	return &Parser{
-		options:   pf.Options,
-		net:       net,
-		transport: transport}
+		options: pf.Options,
+		flow:    flow,
+	}
 }
 
 func (pf *ParserFactory) IsClient(net, transport gopacket.Flow) bool {
@@ -44,7 +44,7 @@ func (pf *ParserFactory) BPFFilter() string {
 // Parser implements protocols.Consumer
 type Parser struct {
 	options           Options
-	net, transport    gopacket.Flow
+	flow              protocols.IPPortTuple
 	currentQueryEvent QueryEvent
 	state             parseState
 }
@@ -154,7 +154,7 @@ func (p *Parser) parseResponseStream(r io.Reader, timestamp time.Time) error {
 			return err
 		}
 		logrus.WithFields(logrus.Fields{
-			"flow":             p.transport.String(),
+			"flow":             p.flow,
 			"firstPayloadByte": packet.FirstPayloadByte(),
 			"sequenceID":       packet.SequenceID,
 			"payloadLength":    packet.PayloadLength,
