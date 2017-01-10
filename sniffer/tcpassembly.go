@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/emfree/gopacket"
 	"github.com/emfree/gopacket/layers"
 	"github.com/emfree/gopacket/reassembly"
@@ -17,6 +18,7 @@ type Stream struct {
 	messages chan *Message
 	started  bool
 	reversed bool
+	flow     IPPortTuple
 	sync.Mutex
 }
 
@@ -81,8 +83,14 @@ func (m *Message) Read(p []byte) (int, error) {
 	return l, nil
 }
 
-// TODO: need to handle completion
+// TODO: ensure this fully handles completion
 func (s *Stream) ReassemblyComplete(ac reassembly.AssemblerContext) bool {
+	logrus.WithField("flow", s.flow).Debug("Closing stream")
+	close(s.messages)
+	// TODO: make sure this can't ever race
+	if s.current != nil {
+		close(s.current.bytes)
+	}
 	return false
 }
 
@@ -105,9 +113,10 @@ func NewStreamFactory(cf ConsumerFactory) *streamFactory {
 
 func (f *streamFactory) New(net, transport gopacket.Flow, tcp *layers.TCP, ac reassembly.AssemblerContext) reassembly.Stream {
 	reversed := f.cf.IsClient(net, transport)
-	s := &Stream{reversed: reversed, messages: make(chan *Message)}
 	flow := NewIPPortTuple(net, transport)
+	s := &Stream{reversed: reversed, flow: flow, messages: make(chan *Message)}
 	s.consumer = f.cf.New(flow)
+	logrus.WithFields(logrus.Fields{"flow": flow}).Debug("Creating new stream")
 	go s.consumer.On(s.messages)
 	return s
 }

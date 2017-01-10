@@ -67,7 +67,7 @@ func (p *Parser) On(messages <-chan *sniffer.Message) {
 	for {
 		m, ok := <-messages
 		if !ok {
-			logrus.WithFields(logrus.Fields{"flow": p.flow}).Debug("Messages closed")
+			logrus.WithField("flow", p.flow).Debug("Message stream closed")
 			return
 		}
 		if m.IsClient {
