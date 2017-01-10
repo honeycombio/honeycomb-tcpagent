@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/layers"
+	"github.com/emfree/gopacket"
+	"github.com/emfree/gopacket/layers"
 	"github.com/honeycombio/honeypacket/protocols"
 )
 

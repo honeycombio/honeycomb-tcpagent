@@ -6,7 +6,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/google/gopacket"
+	"github.com/emfree/gopacket"
 )
 
 type Consumer interface {

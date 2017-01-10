@@ -1,54 +1,57 @@
 package sniffer
 
 import (
-	"fmt"
 	"io"
 	"sync"
 	"time"
 
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/tcpassembly"
+	"github.com/emfree/gopacket"
+	"github.com/emfree/gopacket/layers"
+	"github.com/emfree/gopacket/reassembly"
 	"github.com/honeycombio/honeypacket/protocols"
 )
 
-type BidiStream struct {
-	// The client stream contains packets going *to* the client, and vice versa
-	// TODO: name these better
-	client, server *stream
-	consumer       protocols.Consumer
-	done           chan bool
-	current        *Message
-	started        bool
+type Stream struct {
+	consumer protocols.Consumer
+	done     chan bool
+	current  *Message
+	started  bool
+	reversed bool
 	sync.Mutex
 }
 
-func (b *BidiStream) Reassembled(client bool, rs []tcpassembly.Reassembly) {
-	b.Lock()
-	defer b.Unlock()
-	if b.started && b.current.isClient == client {
-		for _, r := range rs {
-			b.current.bytes <- r.Bytes
-		}
+// TODO: need to handle gaps
+func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.AssemblerContext) {
+	s.Lock()
+	defer s.Unlock()
+
+	dir, _, _, _ := sg.Info()
+	client := s.isClient(bool(dir))
+
+	length, _ := sg.Lengths()
+	data := sg.Fetch(length)
+	if s.started && s.current.isClient == client {
+		s.current.bytes <- data
 	} else {
-		if b.started {
-			close(b.current.bytes)
+		if s.started {
+			close(s.current.bytes)
 		}
-		b.started = true
-		b.current = &Message{
+		s.started = true
+		s.current = &Message{
 			isClient: client,
-			ts:       rs[0].Seen,
+			ts:       ac.GetCaptureInfo().Timestamp,
 			bytes:    make(chan []byte),
 		}
-		// TODO: make sure len(rs) > 0
-		go b.consumer.On(client, rs[0].Seen, b.current)
+		go s.consumer.On(client, ac.GetCaptureInfo().Timestamp, s.current)
 		// ^ TODO: we should wrap this and make sure to discard any remaining
 		// bytes that it leaves
-		for _, r := range rs {
-			// debug
-			fmt.Println("FEEDING BYTES", r.Bytes)
-			b.current.bytes <- r.Bytes
-		}
+		s.current.bytes <- data
 	}
+}
+
+func (s *Stream) isClient(dir bool) bool {
+	// TODO: audit
+	return s.reversed != dir
 }
 
 type Message struct {
@@ -71,68 +74,40 @@ func (m *Message) Read(p []byte) (int, error) {
 	return l, nil
 }
 
-// TODO
-func (b *BidiStream) ReassemblyComplete() {}
-
-type key struct {
-	net, transport gopacket.Flow
+// TODO: need to handle completion
+func (s *Stream) ReassemblyComplete(ac reassembly.AssemblerContext) bool {
+	return false
 }
 
-type stream struct {
-	isClient bool
-	bidi     *BidiStream
-	done     bool
-	key      key
+func (s *Stream) Accept(tcp *layers.TCP, ci gopacket.CaptureInfo, dir reassembly.TCPFlowDirection,
+	ackSeq reassembly.Sequence, start *bool, ac reassembly.AssemblerContext) bool {
+	// TODO?
+	return true
 }
 
-type bidiFactory struct {
-	bidiMap map[key]*BidiStream
-	cf      protocols.ConsumerFactory
+type streamFactory struct {
+	cf protocols.ConsumerFactory
 	sync.Mutex
 }
 
-func NewBidiFactory(cf protocols.ConsumerFactory) *bidiFactory {
-	return &bidiFactory{
-		bidiMap: map[key]*BidiStream{},
-		cf:      cf,
+func NewStreamFactory(cf protocols.ConsumerFactory) *streamFactory {
+	return &streamFactory{
+		cf: cf,
 	}
 }
 
-func (f *bidiFactory) New(net, transport gopacket.Flow) tcpassembly.Stream {
-	f.Lock()
-	defer f.Unlock()
-	k := key{net, transport}
-	isClient := f.cf.IsClient(net, transport)
-	s := &stream{key: k, isClient: isClient}
-
-	bd := f.bidiMap[k]
-	if bd == nil {
-		bd = f.newBidiStream(net, transport)
-		f.bidiMap[key{net.Reverse(), transport.Reverse()}] = bd
-	} else {
-		delete(f.bidiMap, k)
-	}
-
-	if isClient {
-		bd.client = s
-	} else {
-		bd.server = s
-	}
-	s.bidi = bd
+func (f *streamFactory) New(net, transport gopacket.Flow, tcp *layers.TCP, ac reassembly.AssemblerContext) reassembly.Stream {
+	reversed := f.cf.IsClient(net, transport)
+	s := &Stream{reversed: reversed}
+	flow := protocols.NewIPPortTuple(net, transport)
+	s.consumer = f.cf.New(flow)
 	return s
 }
 
-func (bf *bidiFactory) newBidiStream(net, transport gopacket.Flow) *BidiStream {
-	b := &BidiStream{}
-	flow := protocols.NewIPPortTuple(net, transport)
-	b.consumer = bf.cf.New(flow)
-	return b
+type Context struct {
+	CaptureInfo gopacket.CaptureInfo
 }
 
-func (s *stream) Reassembled(rs []tcpassembly.Reassembly) {
-	s.bidi.Reassembled(s.isClient, rs)
+func (c *Context) GetCaptureInfo() gopacket.CaptureInfo {
+	return c.CaptureInfo
 }
-
-func (s *stream) ReassemblyComplete() {}
-
-// TODO: need to handle completion

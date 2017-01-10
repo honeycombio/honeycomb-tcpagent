@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/afpacket"
-	"github.com/google/gopacket/layers"
-	"github.com/google/gopacket/pcap"
-	"github.com/google/gopacket/tcpassembly"
+	"github.com/emfree/gopacket"
+	"github.com/emfree/gopacket/afpacket"
+	"github.com/emfree/gopacket/layers"
+	"github.com/emfree/gopacket/pcap"
+	"github.com/emfree/gopacket/reassembly"
 	"github.com/honeycombio/honeypacket/protocols"
 )
 
@@ -78,9 +78,9 @@ func (sniffer *Sniffer) Run() error {
 
 	}
 
-	factory := NewBidiFactory(sniffer.consumerFactory)
-	streamPool := tcpassembly.NewStreamPool(factory)
-	assembler := tcpassembly.NewAssembler(streamPool)
+	factory := NewStreamFactory(sniffer.consumerFactory)
+	streamPool := reassembly.NewStreamPool(factory)
+	assembler := reassembly.NewAssembler(streamPool)
 
 	var sll layers.LinuxSLL
 	var eth layers.Ethernet
@@ -126,7 +126,7 @@ loop:
 				foundNetLayer = true
 			case layers.LayerTypeTCP:
 				if foundNetLayer {
-					assembler.AssembleWithTimestamp(netFlow, &tcp, ci.Timestamp)
+					assembler.AssembleWithContext(netFlow, &tcp, &Context{CaptureInfo: ci})
 					continue loop
 				}
 			}
