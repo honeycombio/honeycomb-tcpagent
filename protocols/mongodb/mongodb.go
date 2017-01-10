@@ -85,14 +85,13 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 	for {
 		header, data, err := readRawMsg(r)
 		if err != nil {
-			// debug
 			return err
 		}
 		logrus.WithFields(logrus.Fields{
 			"opCode":        header.OpCode,
 			"requestID":     header.RequestID,
 			"responseTo":    header.ResponseTo,
-			"messageLength": header.MessageLength}).Debug("Read request header")
+			"messageLength": header.MessageLength}).Debug("Parsed request header")
 
 		p.currentQueryEvent.RequestID = header.RequestID
 		p.currentQueryEvent.Timestamp = ts
@@ -143,6 +142,11 @@ func (p *Parser) parseResponseStream(r io.Reader, ts time.Time) error {
 		if err != nil {
 			return err
 		}
+		logrus.WithFields(logrus.Fields{
+			"opCode":        header.OpCode,
+			"requestID":     header.RequestID,
+			"responseTo":    header.ResponseTo,
+			"messageLength": header.MessageLength}).Debug("Parsed response header")
 		switch header.OpCode {
 		case OP_REPLY:
 			_, err := readReplyMsg(data)
@@ -151,10 +155,15 @@ func (p *Parser) parseResponseStream(r io.Reader, ts time.Time) error {
 			}
 
 			// TODO: get query statistics, properly correlate with RequestID
-			p.currentQueryEvent.QueryTime = ts.Sub(p.currentQueryEvent.Timestamp).Seconds()
+			if !ts.After(p.currentQueryEvent.Timestamp) {
+				logrus.WithFields(logrus.Fields{"end": ts,
+					"start": p.currentQueryEvent.Timestamp}).Debug("End timestamp before start")
+				p.currentQueryEvent.QueryTime = 0
+			} else {
+				p.currentQueryEvent.QueryTime = ts.Sub(p.currentQueryEvent.Timestamp).Seconds()
+			}
 			p.QueryEventDone()
 		}
-		fmt.Println("Read header", header.MessageLength, header.RequestID, header.ResponseTo, header.OpCode)
 
 	}
 }
