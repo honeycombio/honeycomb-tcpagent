@@ -190,7 +190,7 @@ func readRawMsg(r io.Reader) (*msgHeader, []byte, error) {
 	shouldRead := int(header.MessageLength - 16)
 	bytesRead := 0
 	// TODO: bound buffer size
-	data := make([]byte, header.MessageLength)
+	data := make([]byte, shouldRead)
 	for {
 		n, err := r.Read(data[bytesRead:])
 		if err != nil {
