@@ -12,12 +12,11 @@ import (
 	"github.com/emfree/gopacket/layers"
 	"github.com/emfree/gopacket/pcap"
 	"github.com/emfree/gopacket/reassembly"
-	"github.com/honeycombio/honeypacket/protocols"
 )
 
 type Sniffer struct {
 	packetSource    packetDataSource
-	consumerFactory protocols.ConsumerFactory
+	consumerFactory ConsumerFactory
 	iface           string
 }
 
@@ -36,7 +35,7 @@ type pcapSource struct {
 
 func (a *afpacketSource) SetBPFFilter(filter string) error { return errors.New("not implemented") }
 
-func New(iface string, bufferSizeMb int, snaplen int, cf protocols.ConsumerFactory) (*Sniffer, error) {
+func New(iface string, bufferSizeMb int, snaplen int, cf ConsumerFactory) (*Sniffer, error) {
 	s := &Sniffer{iface: iface, consumerFactory: cf}
 	if true {
 		var err error

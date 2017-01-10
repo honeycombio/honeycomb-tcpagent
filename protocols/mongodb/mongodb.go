@@ -12,7 +12,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/emfree/gopacket"
 	"github.com/emfree/gopacket/layers"
-	"github.com/honeycombio/honeypacket/protocols"
+	"github.com/honeycombio/honeypacket/sniffer"
 )
 
 type Options struct {
@@ -32,13 +32,13 @@ type QueryEvent struct {
 	RequestID  uint32
 }
 
-// ParserFactory implements protocols.ConsumerFactory
+// ParserFactory implements sniffer.ConsumerFactory
 // TODO: this way of setting things up is kind of confusing
 type ParserFactory struct {
 	Options Options
 }
 
-func (pf *ParserFactory) New(flow protocols.IPPortTuple) protocols.Consumer {
+func (pf *ParserFactory) New(flow sniffer.IPPortTuple) sniffer.Consumer {
 	if flow.DstPort != pf.Options.Port {
 		flow = flow.Reverse()
 	}
@@ -56,28 +56,34 @@ func (pf *ParserFactory) BPFFilter() string {
 	return fmt.Sprintf("tcp port %d", pf.Options.Port)
 }
 
-// Parser implements protocols.Consumer
+// Parser implements sniffer.Consumer
 type Parser struct {
 	options           Options
-	flow              protocols.IPPortTuple
+	flow              sniffer.IPPortTuple
 	currentQueryEvent QueryEvent
 }
 
-func (p *Parser) On(isClient bool, ts time.Time, r io.Reader) {
-	// debug
-	if isClient {
-		logrus.WithFields(logrus.Fields{
-			"flow": p.flow}).Debug("Parsing MongoDB response")
-		err := p.parseResponseStream(r, ts)
-		if err != io.EOF {
-			logrus.WithError(err).Debug("Error parsing response")
+func (p *Parser) On(messages <-chan *sniffer.Message) {
+	for {
+		m, ok := <-messages
+		if !ok {
+			logrus.WithFields(logrus.Fields{"flow": p.flow}).Debug("Messages closed")
+			return
 		}
-	} else {
-		logrus.WithFields(logrus.Fields{
-			"flow": p.flow}).Debug("Parsing MongoDB request")
-		err := p.parseRequestStream(r, ts)
-		if err != io.EOF {
-			logrus.WithError(err).Debug("Error parsing request")
+		if m.IsClient {
+			logrus.WithFields(logrus.Fields{
+				"flow": p.flow}).Debug("Parsing MongoDB response")
+			err := p.parseResponseStream(m, m.Timestamp)
+			if err != io.EOF {
+				logrus.WithError(err).Debug("Error parsing response")
+			}
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"flow": p.flow}).Debug("Parsing MongoDB request")
+			err := p.parseRequestStream(m, m.Timestamp)
+			if err != io.EOF {
+				logrus.WithError(err).Debug("Error parsing request")
+			}
 		}
 	}
 }

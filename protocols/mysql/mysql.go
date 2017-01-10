@@ -13,20 +13,20 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/emfree/gopacket"
 	"github.com/emfree/gopacket/layers"
-	"github.com/honeycombio/honeypacket/protocols"
+	"github.com/honeycombio/honeypacket/sniffer"
 )
 
 type Options struct {
 	Port uint16 `long:"port" description:"MySQL port" default:"3306"`
 }
 
-// ParserFactory implements protocols.ConsumerFactory
+// ParserFactory implements sniffer.ConsumerFactory
 // TODO: this way of setting things up is kind of confusing
 type ParserFactory struct {
 	Options Options
 }
 
-func (pf *ParserFactory) New(flow protocols.IPPortTuple) protocols.Consumer {
+func (pf *ParserFactory) New(flow sniffer.IPPortTuple) sniffer.Consumer {
 	if flow.DstPort != pf.Options.Port {
 		flow = flow.Reverse()
 	}
@@ -44,19 +44,26 @@ func (pf *ParserFactory) BPFFilter() string {
 	return fmt.Sprintf("tcp port %d", pf.Options.Port)
 }
 
-// Parser implements protocols.Consumer
+// Parser implements sniffer.Consumer
 type Parser struct {
 	options           Options
-	flow              protocols.IPPortTuple
+	flow              sniffer.IPPortTuple
 	currentQueryEvent QueryEvent
 	state             parseState
 }
 
-func (p *Parser) On(isClient bool, ts time.Time, r io.Reader) {
-	if isClient {
-		p.parseResponseStream(r, ts)
-	} else {
-		p.parseRequestStream(r, ts)
+func (p *Parser) On(messages <-chan *sniffer.Message) {
+	for {
+		m, ok := <-messages
+		if !ok {
+			logrus.WithFields(logrus.Fields{"flow": p.flow}).Debug("Messages closed")
+			return
+		}
+		if m.IsClient {
+			p.parseResponseStream(m, m.Timestamp)
+		} else {
+			p.parseRequestStream(m, m.Timestamp)
+		}
 	}
 }
 

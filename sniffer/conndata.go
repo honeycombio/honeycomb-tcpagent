@@ -1,24 +1,11 @@
-package protocols
+package sniffer
 
 import (
 	"encoding/binary"
-	"io"
 	"net"
-	"time"
 
 	"github.com/emfree/gopacket"
 )
-
-type Consumer interface {
-	On(isClient bool, ts time.Time, stream io.Reader)
-}
-
-// TODO: this is a bad API
-type ConsumerFactory interface {
-	New(flow IPPortTuple) Consumer
-	IsClient(net, transport gopacket.Flow) bool
-	BPFFilter() string
-}
 
 type IPPortTuple struct {
 	SrcIP   net.IP

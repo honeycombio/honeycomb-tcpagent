@@ -8,29 +8,38 @@ import (
 	"github.com/emfree/gopacket"
 	"github.com/emfree/gopacket/layers"
 	"github.com/emfree/gopacket/reassembly"
-	"github.com/honeycombio/honeypacket/protocols"
 )
 
 type Stream struct {
-	consumer protocols.Consumer
+	consumer Consumer
 	done     chan bool
 	current  *Message
+	messages chan *Message
 	started  bool
 	reversed bool
 	sync.Mutex
 }
 
-// TODO: need to handle gaps
-func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.AssemblerContext) {
-	s.Lock()
-	defer s.Unlock()
+type Consumer interface {
+	// TODO: Having to pass these Message objects around is kind of messy
+	On(<-chan *Message)
+}
 
+// TODO: this is kind of a messy API
+type ConsumerFactory interface {
+	New(flow IPPortTuple) Consumer
+	IsClient(net, transport gopacket.Flow) bool
+	BPFFilter() string
+}
+
+// TODO: need to handle gaps!
+func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.AssemblerContext) {
 	dir, _, _, _ := sg.Info()
 	client := s.isClient(bool(dir))
 
 	length, _ := sg.Lengths()
 	data := sg.Fetch(length)
-	if s.started && s.current.isClient == client {
+	if s.started && s.current.IsClient == client {
 		s.current.bytes <- data
 	} else {
 		if s.started {
@@ -38,13 +47,11 @@ func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.Assemb
 		}
 		s.started = true
 		s.current = &Message{
-			isClient: client,
-			ts:       ac.GetCaptureInfo().Timestamp,
-			bytes:    make(chan []byte),
+			IsClient:  client,
+			Timestamp: ac.GetCaptureInfo().Timestamp,
+			bytes:     make(chan []byte),
 		}
-		go s.consumer.On(client, ac.GetCaptureInfo().Timestamp, s.current)
-		// ^ TODO: we should wrap this and make sure to discard any remaining
-		// bytes that it leaves
+		s.messages <- s.current
 		s.current.bytes <- data
 	}
 }
@@ -55,10 +62,10 @@ func (s *Stream) isClient(dir bool) bool {
 }
 
 type Message struct {
-	isClient bool
-	ts       time.Time
-	bytes    chan []byte
-	current  []byte
+	IsClient  bool
+	Timestamp time.Time
+	bytes     chan []byte
+	current   []byte
 }
 
 func (m *Message) Read(p []byte) (int, error) {
@@ -86,11 +93,11 @@ func (s *Stream) Accept(tcp *layers.TCP, ci gopacket.CaptureInfo, dir reassembly
 }
 
 type streamFactory struct {
-	cf protocols.ConsumerFactory
+	cf ConsumerFactory
 	sync.Mutex
 }
 
-func NewStreamFactory(cf protocols.ConsumerFactory) *streamFactory {
+func NewStreamFactory(cf ConsumerFactory) *streamFactory {
 	return &streamFactory{
 		cf: cf,
 	}
@@ -98,9 +105,10 @@ func NewStreamFactory(cf protocols.ConsumerFactory) *streamFactory {
 
 func (f *streamFactory) New(net, transport gopacket.Flow, tcp *layers.TCP, ac reassembly.AssemblerContext) reassembly.Stream {
 	reversed := f.cf.IsClient(net, transport)
-	s := &Stream{reversed: reversed}
-	flow := protocols.NewIPPortTuple(net, transport)
+	s := &Stream{reversed: reversed, messages: make(chan *Message)}
+	flow := NewIPPortTuple(net, transport)
 	s.consumer = f.cf.New(flow)
+	go s.consumer.On(s.messages)
 	return s
 }
 

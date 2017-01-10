@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/honeycombio/honeypacket/protocols"
 	"github.com/honeycombio/honeypacket/protocols/mongodb"
 	"github.com/honeycombio/honeypacket/protocols/mysql"
 	"github.com/honeycombio/honeypacket/sniffer"
@@ -46,7 +45,7 @@ func configureLogging(debug bool) {
 }
 
 func run(options *GlobalOptions) error {
-	var pf protocols.ConsumerFactory
+	var pf sniffer.ConsumerFactory
 	if options.ParserName == "mysql" {
 		pf = &mysql.ParserFactory{Options: options.MySQL}
 	} else if options.ParserName == "mongodb" {
