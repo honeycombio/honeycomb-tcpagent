@@ -1,5 +1,14 @@
 package mongodb
 
+import (
+	"bytes"
+	"encoding/binary"
+	"io"
+	"log"
+
+	"gopkg.in/mgo.v2/bson"
+)
+
 // See https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/
 
 const (
@@ -16,7 +25,7 @@ const (
 	OP_COMMANDREPLY = 2011
 )
 
-type document []byte
+type document string
 type cstring []byte
 
 type updateMsg struct {
@@ -27,22 +36,114 @@ type updateMsg struct {
 	Update             document // specification of the update to perform
 }
 
-func readUpdateMsg() {
+func readUpdateMsg(data []byte) (*updateMsg, error) {
+	r := bytes.NewBuffer(data)
+	m := updateMsg{}
+	var err error
+
+	err = binary.Read(r, binary.LittleEndian, &m.ZERO)
+	if err != nil {
+		return nil, err
+	}
+
+	m.FullCollectionName, err = r.ReadBytes(0x00)
+	if err != nil {
+		return nil, err
+	}
+
+	err = binary.Read(r, binary.LittleEndian, &m.Flags)
+	if err != nil {
+		return nil, err
+	}
+
+	m.Selector, err = readDocument(r)
+	if err != nil {
+		return nil, err
+	}
+
+	m.Update, err = readDocument(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return &m, nil
+
 }
 
 type insertMsg struct {
-	Flags              int32      // bit vector - see below
-	FullCollectionName cstring    // "dbname.collectionname"
-	Documents          []document // one or more documents to insert into the collection
+	Flags              int32    // bit vector - see below
+	FullCollectionName cstring  // "dbname.collectionname"
+	Documents          document // one or more documents to insert into the collection
+}
+
+func readInsertMsg(data []byte) (*insertMsg, error) {
+	r := bytes.NewBuffer(data)
+	var err error
+
+	m := insertMsg{}
+	err = binary.Read(r, binary.LittleEndian, &m.Flags)
+	if err != nil {
+		return nil, err
+	}
+
+	m.FullCollectionName, err = r.ReadBytes(0x00)
+	if err != nil {
+		return nil, err
+	}
+
+	m.Documents, err = readDocument(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return &m, err
 }
 
 type queryMsg struct {
-	Flags                int32      // bit vector of query options.
-	FullCollectionName   cstring    // "dbname.collectionname"
-	NumberToSkip         int32      // number of documents to skip
-	NumberToReturn       int32      // number of documents to return in the first OP_REPLY batch
-	Query                document   // query object.
-	ReturnFieldsSelector []document // Optional. Selector indicating the fields to return.
+	Flags                uint32   // bit vector of query options.
+	FullCollectionName   cstring  // "dbname.collectionname"
+	NumberToSkip         uint32   // number of documents to skip
+	NumberToReturn       uint32   // number of documents to return in the first OP_REPLY batch
+	Query                document // query object.
+	ReturnFieldsSelector document // Optional. Selector indicating the fields to return.
+}
+
+func readQueryMsg(data []byte) (*queryMsg, error) {
+	r := bytes.NewBuffer(data)
+	var err error
+
+	m := queryMsg{}
+	err = binary.Read(r, binary.LittleEndian, &m.Flags)
+	if err != nil {
+		return nil, err
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	m.FullCollectionName, err = r.ReadBytes(0x00)
+	if err != nil {
+		return nil, err
+	}
+
+	err = binary.Read(r, binary.LittleEndian, &m.NumberToSkip)
+	if err != nil {
+		return nil, err
+	}
+
+	err = binary.Read(r, binary.LittleEndian, &m.NumberToReturn)
+	if err != nil {
+		return nil, err
+	}
+
+	m.Query, err = readDocument(r)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO: what's up with this ReturnFieldsSelector thing?
+	return &m, nil
 }
 
 type getMore struct {
@@ -66,11 +167,68 @@ type killCursorsMsg struct {
 }
 
 type replyMsg struct {
-	ResponseFlags  int32      // bit vector - see details below
-	CursorID       int64      // cursor id if client needs to do get more's
-	StartingFrom   int32      // where in the cursor this reply is starting
-	NumberReturned int32      // number of documents in the reply
-	Documents      []document // documents
+	ResponseFlags  int32    // bit vector - see details below
+	CursorID       int64    // cursor id if client needs to do get more's
+	StartingFrom   int32    // where in the cursor this reply is starting
+	NumberReturned int32    // number of documents in the reply
+	Documents      document // documents
+}
+
+func readReplyMsg(data []byte) (*replyMsg, error) {
+	r := bytes.NewBuffer(data)
+	var err error
+
+	m := replyMsg{}
+	err = binary.Read(r, binary.LittleEndian, &m.ResponseFlags)
+	if err != nil {
+		return nil, err
+	}
+
+	err = binary.Read(r, binary.LittleEndian, &m.CursorID)
+	if err != nil {
+		return nil, err
+	}
+
+	err = binary.Read(r, binary.LittleEndian, &m.StartingFrom)
+	if err != nil {
+		return nil, err
+	}
+
+	err = binary.Read(r, binary.LittleEndian, &m.NumberReturned)
+	if err != nil {
+		return nil, err
+	}
+
+	m.Documents, err = readDocument(r)
+	if err != nil {
+		return nil, err
+	}
+
+	return &m, nil
 }
 
 // TODO: do we need to worry about OP_MSG, OP_COMMAND, OP_COMMAND_REPLY?
+
+func readDocument(r io.Reader) (document, error) {
+	var length uint32
+	err := binary.Read(r, binary.LittleEndian, &length)
+	if err != nil {
+		return "", err
+	}
+	buf := make([]byte, length)
+
+	binary.LittleEndian.PutUint32(buf[:4], length)
+	_, err = r.Read(buf[4:])
+	if err != nil {
+		return "", err
+	}
+
+	m := bson.M{}
+	err = bson.Unmarshal(buf, m)
+	if err != nil {
+		log.Printf("Error unmarshaling", buf)
+		return "", err
+	}
+	ret, err := bson.MarshalJSON(m)
+	return document(ret), err
+}

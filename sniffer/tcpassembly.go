@@ -1,11 +1,11 @@
 package sniffer
 
 import (
+	"fmt"
 	"io"
 	"sync"
 	"time"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/tcpassembly"
 	"github.com/honeycombio/honeypacket/protocols"
@@ -33,7 +33,6 @@ func (b *BidiStream) Reassembled(client bool, rs []tcpassembly.Reassembly) {
 		if b.started {
 			close(b.current.bytes)
 		}
-		logrus.Debug("Creating new reader stream")
 		b.started = true
 		b.current = &Message{
 			isClient: client,
@@ -42,7 +41,11 @@ func (b *BidiStream) Reassembled(client bool, rs []tcpassembly.Reassembly) {
 		}
 		// TODO: make sure len(rs) > 0
 		go b.consumer.On(client, rs[0].Seen, b.current)
+		// ^ TODO: we should wrap this and make sure to discard any remaining
+		// bytes that it leaves
 		for _, r := range rs {
+			// debug
+			fmt.Println("FEEDING BYTES", r.Bytes)
 			b.current.bytes <- r.Bytes
 		}
 	}
@@ -85,6 +88,7 @@ type stream struct {
 type bidiFactory struct {
 	bidiMap map[key]*BidiStream
 	cf      protocols.ConsumerFactory
+	sync.Mutex
 }
 
 func NewBidiFactory(cf protocols.ConsumerFactory) *bidiFactory {
@@ -95,6 +99,8 @@ func NewBidiFactory(cf protocols.ConsumerFactory) *bidiFactory {
 }
 
 func (f *bidiFactory) New(net, transport gopacket.Flow) tcpassembly.Stream {
+	f.Lock()
+	defer f.Unlock()
 	k := key{net, transport}
 	isClient := f.cf.IsClient(net, transport)
 	s := &stream{key: k, isClient: isClient}

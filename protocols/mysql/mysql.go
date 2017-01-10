@@ -62,7 +62,6 @@ func (p *Parser) On(isClient bool, ts time.Time, r io.Reader) {
 
 type QueryEvent struct {
 	Timestamp   time.Time
-	TimedOut    bool
 	QueryTime   float64
 	Query       string
 	RowsSent    int
@@ -229,7 +228,7 @@ func readLengthEncodedInteger(firstByte byte, nextBytes []byte) (n uint64, err e
 		return uint64(firstByte), nil
 	} else if firstByte == 0xFC {
 		var v uint16
-		err = binary.Read(r, binary.LittleEndian, v)
+		err = binary.Read(r, binary.LittleEndian, &v)
 		return uint64(v), err
 	} else if firstByte == 0xFD {
 		// Hack to properly parse a three-byte integer
@@ -237,11 +236,11 @@ func readLengthEncodedInteger(firstByte byte, nextBytes []byte) (n uint64, err e
 			a uint8
 			b uint16
 		}
-		err = binary.Read(r, binary.LittleEndian, v)
+		err = binary.Read(r, binary.LittleEndian, &v)
 		return uint64(v.a) + uint64(v.b)<<8, err
 	} else if firstByte == 0xFE {
 		var v uint64
-		err = binary.Read(r, binary.LittleEndian, v)
+		err = binary.Read(r, binary.LittleEndian, &v)
 		return v, err
 	}
 	return 0, errors.New("Invalid length-encoded integer")
