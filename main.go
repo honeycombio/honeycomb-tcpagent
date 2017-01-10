@@ -53,7 +53,7 @@ func run(options *GlobalOptions) error {
 		log.Println("Invalid parser name")
 		os.Exit(1)
 	}
-	sniffer, err := sniffer.New(options.Sniffer.Device, options.Sniffer.SourceType, options.Sniffer.BufSizeMb, options.Sniffer.SnapLen, pf)
+	sniffer, err := sniffer.New(options.Sniffer, pf)
 	if err != nil {
 		log.Println("Failed to configure sniffer:")
 		log.Printf("\t%s\n", err)

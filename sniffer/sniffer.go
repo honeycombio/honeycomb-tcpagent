@@ -47,19 +47,19 @@ type pcapSource struct {
 	*pcap.Handle
 }
 
-func New(iface string, sourceType string, bufferSizeMb int, snaplen int, cf ConsumerFactory) (*Sniffer, error) {
-	s := &Sniffer{iface: iface, consumerFactory: cf}
-	if sourceType == PCap {
+func New(options Options, cf ConsumerFactory) (*Sniffer, error) {
+	s := &Sniffer{iface: options.Device, consumerFactory: cf}
+	if options.SourceType == PCap {
 		var err error
 		if s.iface == "" {
 			s.iface = "any"
 		}
-		s.packetSource, err = newPcapHandle(s.iface, snaplen, pcap.BlockForever) // TODO: make timeout configurable again? Or just don't bother
+		s.packetSource, err = newPcapHandle(s.iface, options.SnapLen, pcap.BlockForever) // TODO: make timeout configurable again? Or just don't bother
 		if err != nil {
 			return nil, err
 		}
-	} else if sourceType == Afpacket {
-		frameSize, blockSize, numBlocks, err := afpacketComputeSize(bufferSizeMb, snaplen, os.Getpagesize())
+	} else if options.SourceType == Afpacket {
+		frameSize, blockSize, numBlocks, err := afpacketComputeSize(options.BufSizeMb, options.SnapLen, os.Getpagesize())
 		if err != nil {
 			return nil, err
 		}
