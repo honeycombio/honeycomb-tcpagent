@@ -14,6 +14,18 @@ import (
 	"github.com/emfree/gopacket/reassembly"
 )
 
+const (
+	PCap     = "pcap"
+	Afpacket = "af_packet"
+)
+
+type Options struct {
+	SourceType string `long:"type" default:"pcap" description:"Packet capture mechanism (pcap or af_packet)"`
+	Device     string `long:"device" description:"Network interface to listen on"`
+	SnapLen    int    `long:"snaplen" default:"65535" description:"Capture snapshot length"`
+	BufSizeMb  int    `long:"bufsize" description:"AF_PACKET buffer size in megabytes" default:"30"`
+}
+
 type Sniffer struct {
 	packetSource    packetDataSource
 	consumerFactory ConsumerFactory
@@ -29,15 +41,15 @@ type afpacketSource struct {
 	*afpacket.TPacket
 }
 
+//func (a *afpacketSource) SetBPFFilter(filter string) error { return nil }
+
 type pcapSource struct {
 	*pcap.Handle
 }
 
-func (a *afpacketSource) SetBPFFilter(filter string) error { return errors.New("not implemented") }
-
-func New(iface string, bufferSizeMb int, snaplen int, cf ConsumerFactory) (*Sniffer, error) {
+func New(iface string, sourceType string, bufferSizeMb int, snaplen int, cf ConsumerFactory) (*Sniffer, error) {
 	s := &Sniffer{iface: iface, consumerFactory: cf}
-	if true {
+	if sourceType == PCap {
 		var err error
 		if s.iface == "" {
 			s.iface = "any"
@@ -46,8 +58,7 @@ func New(iface string, bufferSizeMb int, snaplen int, cf ConsumerFactory) (*Snif
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		// not currently supported -- make this configurable once we add an implementation of SetBPFFilter for AF_PACKET sockets
+	} else if sourceType == Afpacket {
 		frameSize, blockSize, numBlocks, err := afpacketComputeSize(bufferSizeMb, snaplen, os.Getpagesize())
 		if err != nil {
 			return nil, err
@@ -56,6 +67,8 @@ func New(iface string, bufferSizeMb int, snaplen int, cf ConsumerFactory) (*Snif
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		return nil, errors.New("Unsupported packet source type")
 	}
 
 	// TODO: support concatenating multiple BPF filters

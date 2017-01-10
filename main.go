@@ -15,14 +15,12 @@ import (
 )
 
 type GlobalOptions struct {
-	Help             bool            `short:"h" long:"help" description:"Show this help message"`
-	NetworkInterface string          `short:"i" long:"interface" description:"Network interface to listen on"`
-	BufSizeMb        int             `long:"bufsize" description:"AF_PACKET buffer size in megabytes" default:"30"`
-	SnapLen          int             `long:"snaplen" default:"65535"`
-	Debug            bool            `long:"debug"`
-	MySQL            mysql.Options   `group:"MySQL parser options" namespace:"mysql"`
-	MongoDB          mongodb.Options `group:"mongodb parser options" namespace:"mongodb"`
-	ParserName       string          `short:"p" long:"parser" default:"mongodb" description:"Which protocol to parse (MySQL or MongoDB)"` // TODO: just support both!
+	Help       bool            `short:"h" long:"help" description:"Show this help message"`
+	Debug      bool            `long:"debug"`
+	MySQL      mysql.Options   `group:"MySQL parser options" namespace:"mysql"`
+	MongoDB    mongodb.Options `group:"MongoDB parser options" namespace:"mongodb"`
+	Sniffer    sniffer.Options `group:"Packet capture options" namespace:"capture"`
+	ParserName string          `short:"p" long:"parser" default:"mongodb" description:"Which protocol to parse (MySQL or MongoDB)"` // TODO: just support both!
 }
 
 func main() {
@@ -55,7 +53,7 @@ func run(options *GlobalOptions) error {
 		log.Println("Invalid parser name")
 		os.Exit(1)
 	}
-	sniffer, err := sniffer.New(options.NetworkInterface, options.BufSizeMb, options.SnapLen, pf)
+	sniffer, err := sniffer.New(options.Sniffer.Device, options.Sniffer.SourceType, options.Sniffer.BufSizeMb, options.Sniffer.SnapLen, pf)
 	if err != nil {
 		log.Println("Failed to configure sniffer:")
 		log.Printf("\t%s\n", err)

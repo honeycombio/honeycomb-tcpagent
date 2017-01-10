@@ -100,9 +100,6 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 			"responseTo":    header.ResponseTo,
 			"messageLength": header.MessageLength}).Debug("Parsed request header")
 
-		// TODO: these writes to currentQueryEvent are racy
-		// and can cause panics in serialization
-		// the parser should not be shared across goroutines!
 		p.currentQueryEvent.RequestID = header.RequestID
 		p.currentQueryEvent.Timestamp = ts
 
