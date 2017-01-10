@@ -93,6 +93,9 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 			"responseTo":    header.ResponseTo,
 			"messageLength": header.MessageLength}).Debug("Parsed request header")
 
+		// TODO: these writes to currentQueryEvent are racy
+		// and can cause panics in serialization
+		// the parser should not be shared across goroutines!
 		p.currentQueryEvent.RequestID = header.RequestID
 		p.currentQueryEvent.Timestamp = ts
 
@@ -106,6 +109,7 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 			p.currentQueryEvent.Update = string(m.Update)
 			p.currentQueryEvent.Selector = string(m.Selector)
 			p.currentQueryEvent.OpType = "update"
+			p.currentQueryEvent.Collection = string(m.FullCollectionName)
 			p.QueryEventDone()
 		case OP_INSERT:
 			m, err := readInsertMsg(data)
@@ -113,10 +117,11 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 				logrus.WithError(err).Debug("Error parsing insert")
 				return err
 			}
+			p.currentQueryEvent.OpType = "insert"
 			p.currentQueryEvent.Timestamp = ts
 			// TODO: rename?
 			p.currentQueryEvent.Update = string(m.Documents)
-			p.currentQueryEvent.OpType = "insert"
+			p.currentQueryEvent.Collection = string(m.FullCollectionName)
 			p.QueryEventDone()
 		case OP_QUERY:
 			m, err := readQueryMsg(data)
@@ -124,9 +129,10 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 				logrus.WithError(err).Debug("Error parsing query")
 				return err
 			}
-			p.currentQueryEvent.Timestamp = ts
-			p.currentQueryEvent.Query = string(m.Query)
 			p.currentQueryEvent.OpType = "query"
+			p.currentQueryEvent.Timestamp = ts
+			p.currentQueryEvent.Collection = string(m.FullCollectionName)
+			p.currentQueryEvent.Query = string(m.Query)
 		// TODO: others
 		case OP_DELETE:
 			// TODO

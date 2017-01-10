@@ -46,7 +46,7 @@ func readUpdateMsg(data []byte) (*updateMsg, error) {
 		return nil, err
 	}
 
-	m.FullCollectionName, err = r.ReadBytes(0x00)
+	m.FullCollectionName, err = readCString(r)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func readInsertMsg(data []byte) (*insertMsg, error) {
 		return nil, err
 	}
 
-	m.FullCollectionName, err = r.ReadBytes(0x00)
+	m.FullCollectionName, err = readCString(r)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +122,7 @@ func readQueryMsg(data []byte) (*queryMsg, error) {
 		return nil, err
 	}
 
-	m.FullCollectionName, err = r.ReadBytes(0x00)
+	m.FullCollectionName, err = readCString(r)
 	if err != nil {
 		return nil, err
 	}
@@ -231,4 +231,12 @@ func readDocument(r io.Reader) (document, error) {
 	}
 	ret, err := bson.MarshalJSON(m)
 	return document(ret), err
+}
+
+func readCString(r *bytes.Buffer) (cstring, error) {
+	cstring, err := r.ReadBytes(0x00)
+	if err != nil {
+		return nil, err
+	}
+	return cstring[:len(cstring)-1], nil
 }
