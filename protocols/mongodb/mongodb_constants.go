@@ -91,6 +91,7 @@ func readInsertMsg(data []byte) (*insertMsg, error) {
 		return nil, err
 	}
 
+	// TODO: need to parse this as an array
 	m.Documents, err = readDocument(r)
 	if err != nil {
 		return nil, err
@@ -199,6 +200,7 @@ func readReplyMsg(data []byte) (*replyMsg, error) {
 		return nil, err
 	}
 
+	// TODO: need to parse this as an array
 	m.Documents, err = readDocument(r)
 	if err != nil {
 		return nil, err

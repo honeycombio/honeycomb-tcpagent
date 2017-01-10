@@ -22,6 +22,7 @@ type Options struct {
 type QueryEvent struct {
 	Timestamp  time.Time
 	ClientIP   string
+	ServerIP   string
 	QueryTime  float64
 	Query      string
 	OpType     string
@@ -176,6 +177,7 @@ func (p *Parser) parseResponseStream(r io.Reader, ts time.Time) error {
 
 func (p *Parser) QueryEventDone() {
 	p.currentQueryEvent.ClientIP = p.flow.SrcIP.String()
+	p.currentQueryEvent.ServerIP = p.flow.DstIP.String()
 	s, err := json.Marshal(&p.currentQueryEvent)
 	if err != nil {
 		logrus.Error("Error marshaling query event", err)

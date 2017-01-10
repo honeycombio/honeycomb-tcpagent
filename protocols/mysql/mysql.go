@@ -62,6 +62,8 @@ func (p *Parser) On(isClient bool, ts time.Time, r io.Reader) {
 
 type QueryEvent struct {
 	Timestamp   time.Time
+	ClientIP    string
+	ServerIP    string
 	QueryTime   float64
 	Query       string
 	RowsSent    int
@@ -69,7 +71,6 @@ type QueryEvent struct {
 	ColumnsSent int
 	Error       bool
 	ErrorCode   int
-	ClientIP    string
 }
 
 type mySQLPacket struct {
@@ -248,6 +249,7 @@ func readLengthEncodedInteger(firstByte byte, nextBytes []byte) (n uint64, err e
 
 func (p *Parser) QueryEventDone() {
 	p.currentQueryEvent.ClientIP = p.flow.SrcIP.String()
+	p.currentQueryEvent.ServerIP = p.flow.DstIP.String()
 	s, err := json.Marshal(&p.currentQueryEvent)
 	if err != nil {
 		logrus.Error("Error marshaling query event", err)
