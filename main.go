@@ -22,7 +22,7 @@ type GlobalOptions struct {
 	Debug            bool            `long:"debug"`
 	MySQL            mysql.Options   `group:"MySQL parser options" namespace:"mysql"`
 	MongoDB          mongodb.Options `group:"mongodb parser options" namespace:"mongodb"`
-	ParserName       string          `short:"p" long:"parser" description:"Which protocol to parse (MySQL or MongoDB)"` // TODO: just support both!
+	ParserName       string          `short:"p" long:"parser" default:"mongodb" description:"Which protocol to parse (MySQL or MongoDB)"` // TODO: just support both!
 }
 
 func main() {
