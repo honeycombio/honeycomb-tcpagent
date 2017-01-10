@@ -27,6 +27,9 @@ type ParserFactory struct {
 }
 
 func (pf *ParserFactory) New(flow protocols.IPPortTuple) protocols.Consumer {
+	if flow.DstPort != pf.Options.Port {
+		flow = flow.Reverse()
+	}
 	return &Parser{
 		options: pf.Options,
 		flow:    flow,
@@ -58,15 +61,16 @@ func (p *Parser) On(isClient bool, ts time.Time, r io.Reader) {
 }
 
 type QueryEvent struct {
-	Timestamp      time.Time
-	TimedOut       bool
-	ResponseTimeMs int64
-	Query          string
-	RowsSent       int
-	BytesSent      int
-	ColumnsSent    int
-	Error          bool
-	ErrorCode      int
+	Timestamp   time.Time
+	TimedOut    bool
+	QueryTime   float64
+	Query       string
+	RowsSent    int
+	BytesSent   int
+	ColumnsSent int
+	Error       bool
+	ErrorCode   int
+	ClientIP    string
 }
 
 type mySQLPacket struct {
@@ -204,7 +208,7 @@ func (p *Parser) parseResponseStream(r io.Reader, timestamp time.Time) error {
 		case parseStateChompRows:
 			if packet.FirstPayloadByte() == OK || packet.FirstPayloadByte() == EOF {
 				// TODO: parse OK packet contents
-				p.currentQueryEvent.ResponseTimeMs = timestamp.Sub(p.currentQueryEvent.Timestamp).Nanoseconds() / 1e6
+				p.currentQueryEvent.QueryTime = timestamp.Sub(p.currentQueryEvent.Timestamp).Seconds()
 				p.QueryEventDone()
 				p.state = parseStateChompFirstPacket
 			} else {
@@ -244,6 +248,7 @@ func readLengthEncodedInteger(firstByte byte, nextBytes []byte) (n uint64, err e
 }
 
 func (p *Parser) QueryEventDone() {
+	p.currentQueryEvent.ClientIP = p.flow.SrcIP.String()
 	s, err := json.Marshal(&p.currentQueryEvent)
 	if err != nil {
 		logrus.Error("Error marshaling query event", err)

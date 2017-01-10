@@ -35,3 +35,12 @@ func NewIPPortTuple(net_, transport gopacket.Flow) IPPortTuple {
 		DstPort: binary.BigEndian.Uint16(transport.Dst().Raw()),
 	}
 }
+
+func (t IPPortTuple) Reverse() IPPortTuple {
+	return IPPortTuple{
+		SrcIP:   t.DstIP,
+		DstIP:   t.SrcIP,
+		SrcPort: t.DstPort,
+		DstPort: t.SrcPort,
+	}
+}
