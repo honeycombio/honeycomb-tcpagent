@@ -223,8 +223,10 @@ func readRawMsg(r io.Reader) (*msgHeader, []byte, error) {
 	}
 	shouldRead := int(header.MessageLength - 16)
 	bytesRead := 0
-	// TODO: bound buffer size
-	data := make([]byte, shouldRead)
+	data, err := newSafeBuffer(shouldRead)
+	if err != nil {
+		return nil, nil, err
+	}
 	for {
 		n, err := r.Read(data[bytesRead:])
 		if err != nil {
@@ -239,4 +241,20 @@ func readRawMsg(r io.Reader) (*msgHeader, []byte, error) {
 		}
 	}
 	return &header, data, nil
+}
+
+// Ensure that we don't try to allocate crazy amounts of memory if we find
+// ourselves parsing a bad packet.
+func newSafeBuffer(bufsize int) ([]byte, error) {
+	// Max BSON document size is 16MB.
+	// https://docs.mongodb.com/manual/reference/limits/
+	// For simplicity, bound buffer size at 32MB so that headers and so on fit
+	// too.
+	// TODO: Can you put multiple large documents in one insert or reply and
+	// exceed this limit?
+	if bufsize > 32*1024*1024 {
+		return nil, fmt.Errorf("Buffer size %d too large", bufsize)
+	}
+	return make([]byte, bufsize), nil
+
 }

@@ -212,7 +212,10 @@ func readDocument(r io.Reader) (document, error) {
 	if err != nil {
 		return "", err
 	}
-	buf := make([]byte, length)
+	buf, err := newSafeBuffer(int(length))
+	if err != nil {
+		return "", err
+	}
 
 	binary.LittleEndian.PutUint32(buf[:4], length)
 	_, err = r.Read(buf[4:])
