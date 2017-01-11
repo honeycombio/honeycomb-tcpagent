@@ -19,6 +19,9 @@ type Options struct {
 	Port uint16 `long:"port" description:"MongoDB port" default:"27017"`
 }
 
+// TODO: consider specializing this for different operation types, so as not to
+// return a blank `Update` field for OP_QUERY messages, for example.
+// Maybe also rename to OpType for clarity?
 type QueryEvent struct {
 	Timestamp  time.Time
 	ClientIP   string
@@ -47,6 +50,7 @@ func (pf *ParserFactory) New(flow sniffer.IPPortTuple) sniffer.Consumer {
 	return &Parser{
 		options: pf.Options,
 		flow:    flow,
+		qcache:  newQCache(128),
 	}
 }
 
@@ -60,9 +64,9 @@ func (pf *ParserFactory) BPFFilter() string {
 
 // Parser implements sniffer.Consumer
 type Parser struct {
-	options           Options
-	flow              sniffer.IPPortTuple
-	currentQueryEvent QueryEvent
+	options Options
+	flow    sniffer.IPPortTuple
+	qcache  *QCache
 }
 
 func (p *Parser) On(messages <-chan *sniffer.Message) {
@@ -102,8 +106,9 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 			"responseTo":    header.ResponseTo,
 			"messageLength": header.MessageLength}).Debug("Parsed request header")
 
-		p.currentQueryEvent.RequestID = header.RequestID
-		p.currentQueryEvent.Timestamp = ts
+		q := &QueryEvent{}
+		q.RequestID = header.RequestID
+		q.Timestamp = ts
 
 		switch header.OpCode {
 		case OP_UPDATE:
@@ -112,32 +117,33 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 				logrus.WithError(err).Debug("Error parsing update")
 				return err
 			}
-			p.currentQueryEvent.Update = string(m.Update)
-			p.currentQueryEvent.Selector = string(m.Selector)
-			p.currentQueryEvent.OpType = "update"
-			p.currentQueryEvent.Collection = string(m.FullCollectionName)
-			p.QueryEventDone()
+			q.Update = string(m.Update)
+			q.Selector = string(m.Selector)
+			q.OpType = "update"
+			q.Collection = string(m.FullCollectionName)
+			p.Publish(q)
 		case OP_INSERT:
 			m, err := readInsertMsg(data)
 			if err != nil {
 				logrus.WithError(err).Debug("Error parsing insert")
 				return err
 			}
-			p.currentQueryEvent.OpType = "insert"
-			p.currentQueryEvent.Timestamp = ts
-			p.currentQueryEvent.NInserted = m.NInserted
-			p.currentQueryEvent.Collection = string(m.FullCollectionName)
-			p.QueryEventDone()
+			q.OpType = "insert"
+			q.Timestamp = ts
+			q.NInserted = m.NInserted
+			q.Collection = string(m.FullCollectionName)
+			p.Publish(q)
 		case OP_QUERY:
 			m, err := readQueryMsg(data)
 			if err != nil {
 				logrus.WithError(err).Debug("Error parsing query")
 				return err
 			}
-			p.currentQueryEvent.OpType = "query"
-			p.currentQueryEvent.Timestamp = ts
-			p.currentQueryEvent.Collection = string(m.FullCollectionName)
-			p.currentQueryEvent.Query = string(m.Query)
+			q.OpType = "query"
+			q.Timestamp = ts
+			q.Collection = string(m.FullCollectionName)
+			q.Query = string(m.Query)
+			p.qcache.Add(header.RequestID, q)
 		// TODO: others
 		case OP_DELETE:
 			// TODO
@@ -164,33 +170,37 @@ func (p *Parser) parseResponseStream(r io.Reader, ts time.Time) error {
 			if err != nil {
 				return err
 			}
-
-			p.currentQueryEvent.NReturned = m.NumberReturned
-
-			// TODO: properly correlate with RequestID
-			if !ts.After(p.currentQueryEvent.Timestamp) {
-				logrus.WithFields(logrus.Fields{"end": ts,
-					"start": p.currentQueryEvent.Timestamp}).Debug("End timestamp before start")
-				p.currentQueryEvent.QueryTime = 0
+			q, ok := p.qcache.Get(header.ResponseTo)
+			if !ok {
+				logrus.WithFields(logrus.Fields{"flow": p.flow,
+					"responseTo": header.ResponseTo}).Debug("Query not found in cache")
 			} else {
-				p.currentQueryEvent.QueryTime = ts.Sub(p.currentQueryEvent.Timestamp).Seconds()
+				q.NReturned = m.NumberReturned
+
+				if !ts.After(q.Timestamp) {
+					logrus.WithFields(logrus.Fields{"end": ts,
+						"start": q.Timestamp}).Debug("End timestamp before start")
+					q.QueryTime = 0
+				} else {
+					q.QueryTime = ts.Sub(q.Timestamp).Seconds()
+				}
+				p.Publish(q)
 			}
-			p.QueryEventDone()
+
 		}
 
 	}
 }
 
-func (p *Parser) QueryEventDone() {
-	p.currentQueryEvent.ClientIP = p.flow.SrcIP.String()
-	p.currentQueryEvent.ServerIP = p.flow.DstIP.String()
-	s, err := json.Marshal(&p.currentQueryEvent)
+func (p *Parser) Publish(q *QueryEvent) {
+	q.ClientIP = p.flow.SrcIP.String()
+	q.ServerIP = p.flow.DstIP.String()
+	s, err := json.Marshal(&q)
 	if err != nil {
 		logrus.Error("Error marshaling query event", err)
 	}
 	io.WriteString(os.Stdout, string(s))
 	io.WriteString(os.Stdout, "\n")
-	p.currentQueryEvent = QueryEvent{}
 }
 
 type msgHeader struct {
