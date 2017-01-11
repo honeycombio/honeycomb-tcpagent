@@ -30,6 +30,8 @@ type QueryEvent struct {
 	Selector   string
 	Update     string
 	RequestID  uint32
+	NReturned  int32
+	NInserted  int32
 }
 
 // ParserFactory implements sniffer.ConsumerFactory
@@ -123,8 +125,7 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 			}
 			p.currentQueryEvent.OpType = "insert"
 			p.currentQueryEvent.Timestamp = ts
-			// TODO: rename?
-			p.currentQueryEvent.Update = string(m.Documents)
+			p.currentQueryEvent.NInserted = m.NInserted
 			p.currentQueryEvent.Collection = string(m.FullCollectionName)
 			p.QueryEventDone()
 		case OP_QUERY:
@@ -159,12 +160,14 @@ func (p *Parser) parseResponseStream(r io.Reader, ts time.Time) error {
 			"messageLength": header.MessageLength}).Debug("Parsed response header")
 		switch header.OpCode {
 		case OP_REPLY:
-			_, err := readReplyMsg(data)
+			m, err := readReplyMsg(data)
 			if err != nil {
 				return err
 			}
 
-			// TODO: get query statistics, properly correlate with RequestID
+			p.currentQueryEvent.NReturned = m.NumberReturned
+
+			// TODO: properly correlate with RequestID
 			if !ts.After(p.currentQueryEvent.Timestamp) {
 				logrus.WithFields(logrus.Fields{"end": ts,
 					"start": p.currentQueryEvent.Timestamp}).Debug("End timestamp before start")
