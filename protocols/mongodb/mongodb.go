@@ -51,6 +51,7 @@ func (pf *ParserFactory) New(flow sniffer.IPPortTuple) sniffer.Consumer {
 		options: pf.Options,
 		flow:    flow,
 		qcache:  newQCache(128),
+		logger:  logrus.WithFields(logrus.Fields{"flow": flow, "component": "mongodb"}),
 	}
 }
 
@@ -67,28 +68,27 @@ type Parser struct {
 	options Options
 	flow    sniffer.IPPortTuple
 	qcache  *QCache
+	logger  *logrus.Entry
 }
 
 func (p *Parser) On(messages <-chan *sniffer.Message) {
 	for {
 		m, ok := <-messages
 		if !ok {
-			logrus.WithField("flow", p.flow).Debug("Message stream closed")
+			p.logger.Debug("Message stream closed")
 			return
 		}
 		if m.IsClient {
-			logrus.WithFields(logrus.Fields{
-				"flow": p.flow}).Debug("Parsing MongoDB response")
+			p.logger.Debug("Parsing MongoDB response")
 			err := p.parseResponseStream(m, m.Timestamp)
 			if err != io.EOF {
-				logrus.WithError(err).Debug("Error parsing response")
+				p.logger.WithError(err).Debug("Error parsing response")
 			}
 		} else {
-			logrus.WithFields(logrus.Fields{
-				"flow": p.flow}).Debug("Parsing MongoDB request")
+			p.logger.Debug("Parsing MongoDB request")
 			err := p.parseRequestStream(m, m.Timestamp)
 			if err != io.EOF {
-				logrus.WithError(err).Debug("Error parsing request")
+				p.logger.WithError(err).Debug("Error parsing request")
 			}
 		}
 	}
@@ -100,7 +100,7 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 		if err != nil {
 			return err
 		}
-		logrus.WithFields(logrus.Fields{
+		p.logger.WithFields(logrus.Fields{
 			"opCode":        header.OpCode,
 			"requestID":     header.RequestID,
 			"responseTo":    header.ResponseTo,
@@ -114,7 +114,7 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 		case OP_UPDATE:
 			m, err := readUpdateMsg(data)
 			if err != nil {
-				logrus.WithError(err).Debug("Error parsing update")
+				p.logger.WithError(err).Debug("Error parsing update")
 				return err
 			}
 			q.Update = string(m.Update)
@@ -125,7 +125,7 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 		case OP_INSERT:
 			m, err := readInsertMsg(data)
 			if err != nil {
-				logrus.WithError(err).Debug("Error parsing insert")
+				p.logger.WithError(err).Debug("Error parsing insert")
 				return err
 			}
 			q.OpType = "insert"
@@ -136,7 +136,7 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 		case OP_QUERY:
 			m, err := readQueryMsg(data)
 			if err != nil {
-				logrus.WithError(err).Debug("Error parsing query")
+				p.logger.WithError(err).Debug("Error parsing query")
 				return err
 			}
 			q.OpType = "query"
@@ -159,7 +159,7 @@ func (p *Parser) parseResponseStream(r io.Reader, ts time.Time) error {
 		if err != nil {
 			return err
 		}
-		logrus.WithFields(logrus.Fields{
+		p.logger.WithFields(logrus.Fields{
 			"opCode":        header.OpCode,
 			"requestID":     header.RequestID,
 			"responseTo":    header.ResponseTo,
@@ -172,13 +172,14 @@ func (p *Parser) parseResponseStream(r io.Reader, ts time.Time) error {
 			}
 			q, ok := p.qcache.Get(header.ResponseTo)
 			if !ok {
-				logrus.WithFields(logrus.Fields{"flow": p.flow,
-					"responseTo": header.ResponseTo}).Debug("Query not found in cache")
+				p.logger.WithField("responseTo", header.ResponseTo).
+					Debug("Query not found in cache")
 			} else {
 				q.NReturned = m.NumberReturned
 
 				if !ts.After(q.Timestamp) {
-					logrus.WithFields(logrus.Fields{"end": ts,
+					p.logger.WithFields(logrus.Fields{
+						"end":   ts,
 						"start": q.Timestamp}).Debug("End timestamp before start")
 					q.QueryTime = 0
 				} else {
@@ -197,7 +198,7 @@ func (p *Parser) Publish(q *QueryEvent) {
 	q.ServerIP = p.flow.DstIP.String()
 	s, err := json.Marshal(&q)
 	if err != nil {
-		logrus.Error("Error marshaling query event", err)
+		p.logger.Error("Error marshaling query event", err)
 	}
 	io.WriteString(os.Stdout, string(s))
 	io.WriteString(os.Stdout, "\n")
