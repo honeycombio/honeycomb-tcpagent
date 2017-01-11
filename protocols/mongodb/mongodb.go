@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/emfree/gopacket"
-	"github.com/emfree/gopacket/layers"
 	"github.com/honeycombio/honeypacket/sniffer"
 )
 
@@ -55,10 +53,6 @@ func (pf *ParserFactory) New(flow sniffer.IPPortTuple) sniffer.Consumer {
 	}
 }
 
-func (pf *ParserFactory) IsClient(net, transport gopacket.Flow) bool {
-	return transport.Src() == layers.NewTCPPortEndpoint(layers.TCPPort(pf.Options.Port))
-}
-
 func (pf *ParserFactory) BPFFilter() string {
 	return fmt.Sprintf("tcp port %d", pf.Options.Port)
 }
@@ -78,17 +72,18 @@ func (p *Parser) On(messages <-chan *sniffer.Message) {
 			p.logger.Debug("Message stream closed")
 			return
 		}
-		if m.IsClient {
-			p.logger.Debug("Parsing MongoDB response")
-			err := p.parseResponseStream(m, m.Timestamp)
-			if err != io.EOF {
-				p.logger.WithError(err).Debug("Error parsing response")
-			}
-		} else {
+		toServer := m.Flow.DstPort == p.options.Port
+		if toServer {
 			p.logger.Debug("Parsing MongoDB request")
 			err := p.parseRequestStream(m, m.Timestamp)
 			if err != io.EOF {
 				p.logger.WithError(err).Debug("Error parsing request")
+			}
+		} else {
+			p.logger.Debug("Parsing MongoDB response")
+			err := p.parseResponseStream(m, m.Timestamp)
+			if err != io.EOF {
+				p.logger.WithError(err).Debug("Error parsing response")
 			}
 		}
 	}

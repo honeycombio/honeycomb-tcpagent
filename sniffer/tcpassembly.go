@@ -14,10 +14,10 @@ import (
 type Stream struct {
 	consumer Consumer
 	done     chan bool
+	currDir  reassembly.TCPFlowDirection
 	current  *Message
 	messages chan *Message
 	started  bool
-	reversed bool
 	flow     IPPortTuple
 	sync.Mutex
 }
@@ -30,26 +30,25 @@ type Consumer interface {
 // TODO: this is kind of a messy API
 type ConsumerFactory interface {
 	New(flow IPPortTuple) Consumer
-	IsClient(net, transport gopacket.Flow) bool
 	BPFFilter() string
 }
 
 // TODO: need to handle gaps!
 func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.AssemblerContext) {
 	dir, _, _, _ := sg.Info()
-	client := s.isClient(bool(dir))
 
 	length, _ := sg.Lengths()
 	data := sg.Fetch(length)
-	if s.started && s.current.IsClient == client {
+	if s.started && s.currDir == dir {
 		s.current.bytes <- data
 	} else {
 		if s.started {
 			close(s.current.bytes)
 		}
 		s.started = true
+		s.currDir = dir
 		s.current = &Message{
-			IsClient:  client,
+			Flow:      s.getFlow(dir),
 			Timestamp: ac.GetCaptureInfo().Timestamp,
 			bytes:     make(chan []byte),
 		}
@@ -58,13 +57,8 @@ func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.Assemb
 	}
 }
 
-func (s *Stream) isClient(dir bool) bool {
-	// TODO: audit
-	return s.reversed != dir
-}
-
 type Message struct {
-	IsClient  bool
+	Flow      IPPortTuple
 	Timestamp time.Time
 	bytes     chan []byte
 	current   []byte
@@ -100,6 +94,18 @@ func (s *Stream) Accept(tcp *layers.TCP, ci gopacket.CaptureInfo, dir reassembly
 	return true
 }
 
+func (s *Stream) getFlow(dir reassembly.TCPFlowDirection) IPPortTuple {
+	// TCPDirClientToServer means the direction of the half-connection that was
+	// first seen. That's not actually necessarily the true client-to-server
+	// direction. We use this helper to pass the correct IPPortTuple object on
+	// to the consumer in ReassembledSG.
+	if dir == reassembly.TCPDirClientToServer {
+		return s.flow
+	} else {
+		return s.flow.Reverse()
+	}
+}
+
 type streamFactory struct {
 	cf ConsumerFactory
 	sync.Mutex
@@ -112,9 +118,8 @@ func NewStreamFactory(cf ConsumerFactory) *streamFactory {
 }
 
 func (f *streamFactory) New(net, transport gopacket.Flow, tcp *layers.TCP, ac reassembly.AssemblerContext) reassembly.Stream {
-	reversed := f.cf.IsClient(net, transport)
 	flow := NewIPPortTuple(net, transport)
-	s := &Stream{reversed: reversed, flow: flow, messages: make(chan *Message)}
+	s := &Stream{flow: flow, messages: make(chan *Message)}
 	s.consumer = f.cf.New(flow)
 	logrus.WithFields(logrus.Fields{"flow": flow}).Debug("Creating new stream")
 	go s.consumer.On(s.messages)

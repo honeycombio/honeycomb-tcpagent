@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/emfree/gopacket"
-	"github.com/emfree/gopacket/layers"
 	"github.com/honeycombio/honeypacket/sniffer"
 )
 
@@ -36,10 +34,6 @@ func (pf *ParserFactory) New(flow sniffer.IPPortTuple) sniffer.Consumer {
 	}
 }
 
-func (pf *ParserFactory) IsClient(net, transport gopacket.Flow) bool {
-	return transport.Src() == layers.NewTCPPortEndpoint(layers.TCPPort(pf.Options.Port))
-}
-
 func (pf *ParserFactory) BPFFilter() string {
 	return fmt.Sprintf("tcp port %d", pf.Options.Port)
 }
@@ -59,10 +53,11 @@ func (p *Parser) On(messages <-chan *sniffer.Message) {
 			logrus.WithFields(logrus.Fields{"flow": p.flow}).Debug("Messages closed")
 			return
 		}
-		if m.IsClient {
-			p.parseResponseStream(m, m.Timestamp)
-		} else {
+		toServer := m.Flow.DstPort == p.options.Port
+		if toServer {
 			p.parseRequestStream(m, m.Timestamp)
+		} else {
+			p.parseResponseStream(m, m.Timestamp)
 		}
 	}
 }
