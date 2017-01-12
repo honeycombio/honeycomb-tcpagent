@@ -16,7 +16,7 @@ func newQCache(size int) *QCache {
 	}
 }
 
-func (qc *QCache) Get(k uint32) (*QueryEvent, bool) {
+func (qc *QCache) Get(k int32) (*QueryEvent, bool) {
 	v, ok := qc.cache.Get(k)
 	if !ok {
 		return nil, ok
@@ -25,6 +25,6 @@ func (qc *QCache) Get(k uint32) (*QueryEvent, bool) {
 	return q, ok
 }
 
-func (qc *QCache) Add(k uint32, v interface{}) {
+func (qc *QCache) Add(k int32, v interface{}) {
 	qc.cache.Add(k, v)
 }

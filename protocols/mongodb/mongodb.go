@@ -30,9 +30,9 @@ type QueryEvent struct {
 	Collection string
 	Selector   string
 	Update     string
-	RequestID  uint32
+	RequestID  int32
 	NReturned  int32
-	NInserted  int32
+	NInserted  int
 }
 
 // ParserFactory implements sniffer.ConsumerFactory
@@ -69,7 +69,6 @@ type Parser struct {
 }
 
 func (p *Parser) On(ms sniffer.MessageStream) {
-	fmt.Println("HANDLING MESSAGE STREAM")
 	for {
 		m, ok := ms.Next()
 		if !ok {
@@ -208,10 +207,10 @@ func (p *Parser) publish(q *QueryEvent) {
 }
 
 type msgHeader struct {
-	MessageLength uint32 // total message size, including this
-	RequestID     uint32 // identifier for this message
-	ResponseTo    uint32 // requestID from the original request
-	OpCode        uint32 // request type - see table below
+	MessageLength int32 // total message size, including this
+	RequestID     int32 // identifier for this message
+	ResponseTo    int32 // requestID from the original request
+	OpCode        int32 // request type - see table below
 }
 
 func readRawMsg(r io.Reader) (*msgHeader, []byte, error) {
