@@ -168,7 +168,7 @@ func (p *Parser) parseResponseStream(r io.Reader, ts time.Time) error {
 			if err != nil {
 				return err
 			}
-			q, ok := p.qcache.Get(header.ResponseTo)
+			q, ok := p.qcache.Pop(header.ResponseTo)
 			if !ok {
 				p.logger.WithField("responseTo", header.ResponseTo).
 					Debug("Query not found in cache")
