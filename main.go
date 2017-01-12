@@ -49,7 +49,7 @@ func run(options *GlobalOptions) error {
 	} else if options.ParserName == "mongodb" {
 		pf = &mongodb.ParserFactory{Options: options.MongoDB}
 	} else {
-		// TODO: this should be better
+		// TODO: this error should be better
 		log.Println("Invalid parser name")
 		os.Exit(1)
 	}

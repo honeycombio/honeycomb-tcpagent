@@ -46,18 +46,18 @@ type Parser struct {
 	state             parseState
 }
 
-func (p *Parser) On(messages <-chan *sniffer.Message) {
+func (p *Parser) On(ms sniffer.MessageStream) {
 	for {
-		m, ok := <-messages
+		m, ok := ms.Next()
 		if !ok {
 			logrus.WithFields(logrus.Fields{"flow": p.flow}).Debug("Messages closed")
 			return
 		}
-		toServer := m.Flow.DstPort == p.options.Port
+		toServer := m.Flow().DstPort == p.options.Port
 		if toServer {
-			p.parseRequestStream(m, m.Timestamp)
+			p.parseRequestStream(m, m.Timestamp())
 		} else {
-			p.parseResponseStream(m, m.Timestamp)
+			p.parseResponseStream(m, m.Timestamp())
 		}
 	}
 }

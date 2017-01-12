@@ -11,26 +11,34 @@ import (
 	"github.com/emfree/gopacket/reassembly"
 )
 
-type Stream struct {
-	consumer Consumer
-	done     chan bool
-	currDir  reassembly.TCPFlowDirection
-	current  *Message
-	messages chan *Message
-	started  bool
-	flow     IPPortTuple
-	sync.Mutex
-}
-
 type Consumer interface {
-	// TODO: Having to pass these Message objects around is kind of messy
-	On(<-chan *Message)
+	On(MessageStream)
 }
 
 // TODO: this is kind of a messy API
 type ConsumerFactory interface {
 	New(flow IPPortTuple) Consumer
 	BPFFilter() string
+}
+
+type Message interface {
+	Timestamp() time.Time
+	Flow() IPPortTuple
+	io.Reader
+}
+
+type MessageStream interface {
+	Next() (Message, bool)
+}
+
+type Stream struct {
+	consumer Consumer
+	done     chan bool
+	currDir  reassembly.TCPFlowDirection
+	current  *message
+	messages chan *message
+	started  bool
+	flow     IPPortTuple
 }
 
 // TODO: need to handle gaps!
@@ -47,9 +55,9 @@ func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.Assemb
 		}
 		s.started = true
 		s.currDir = dir
-		s.current = &Message{
-			Flow:      s.getFlow(dir),
-			Timestamp: ac.GetCaptureInfo().Timestamp,
+		s.current = &message{
+			flow:      s.getFlow(dir),
+			timestamp: ac.GetCaptureInfo().Timestamp,
 			bytes:     make(chan []byte),
 		}
 		s.messages <- s.current
@@ -57,14 +65,24 @@ func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.Assemb
 	}
 }
 
-type Message struct {
-	Flow      IPPortTuple
-	Timestamp time.Time
+// Implements Message
+// TODO: restructure a bit?
+type message struct {
+	flow      IPPortTuple
+	timestamp time.Time
 	bytes     chan []byte
 	current   []byte
 }
 
-func (m *Message) Read(p []byte) (int, error) {
+func (m *message) Timestamp() time.Time {
+	return m.timestamp
+}
+
+func (m *message) Flow() IPPortTuple {
+	return m.flow
+}
+
+func (m *message) Read(p []byte) (int, error) {
 	ok := true
 	for ok && len(m.current) == 0 {
 		m.current, ok = <-m.bytes
@@ -106,6 +124,12 @@ func (s *Stream) getFlow(dir reassembly.TCPFlowDirection) IPPortTuple {
 	}
 }
 
+// Implements the MessageStream interface
+func (s *Stream) Next() (Message, bool) {
+	m, ok := <-s.messages
+	return m, ok
+}
+
 type streamFactory struct {
 	cf ConsumerFactory
 	sync.Mutex
@@ -119,10 +143,10 @@ func NewStreamFactory(cf ConsumerFactory) *streamFactory {
 
 func (f *streamFactory) New(net, transport gopacket.Flow, tcp *layers.TCP, ac reassembly.AssemblerContext) reassembly.Stream {
 	flow := NewIPPortTuple(net, transport)
-	s := &Stream{flow: flow, messages: make(chan *Message)}
+	s := &Stream{flow: flow, messages: make(chan *message)}
 	s.consumer = f.cf.New(flow)
 	logrus.WithFields(logrus.Fields{"flow": flow}).Debug("Creating new stream")
-	go s.consumer.On(s.messages)
+	go s.consumer.On(s)
 	return s
 }
 

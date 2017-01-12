@@ -38,7 +38,8 @@ type QueryEvent struct {
 // ParserFactory implements sniffer.ConsumerFactory
 // TODO: this way of setting things up is kind of confusing
 type ParserFactory struct {
-	Options Options
+	Options  Options
+	SendFunc func([]byte)
 }
 
 func (pf *ParserFactory) New(flow sniffer.IPPortTuple) sniffer.Consumer {
@@ -46,10 +47,11 @@ func (pf *ParserFactory) New(flow sniffer.IPPortTuple) sniffer.Consumer {
 		flow = flow.Reverse()
 	}
 	return &Parser{
-		options: pf.Options,
-		flow:    flow,
-		qcache:  newQCache(128),
-		logger:  logrus.WithFields(logrus.Fields{"flow": flow, "component": "mongodb"}),
+		options:  pf.Options,
+		flow:     flow,
+		qcache:   newQCache(128),
+		logger:   logrus.WithFields(logrus.Fields{"flow": flow, "component": "mongodb"}),
+		sendFunc: pf.SendFunc,
 	}
 }
 
@@ -59,29 +61,31 @@ func (pf *ParserFactory) BPFFilter() string {
 
 // Parser implements sniffer.Consumer
 type Parser struct {
-	options Options
-	flow    sniffer.IPPortTuple
-	qcache  *QCache
-	logger  *logrus.Entry
+	options  Options
+	flow     sniffer.IPPortTuple
+	qcache   *QCache
+	logger   *logrus.Entry
+	sendFunc func([]byte)
 }
 
-func (p *Parser) On(messages <-chan *sniffer.Message) {
+func (p *Parser) On(ms sniffer.MessageStream) {
+	fmt.Println("HANDLING MESSAGE STREAM")
 	for {
-		m, ok := <-messages
+		m, ok := ms.Next()
 		if !ok {
 			p.logger.Debug("Message stream closed")
 			return
 		}
-		toServer := m.Flow.DstPort == p.options.Port
+		toServer := m.Flow().DstPort == p.options.Port
 		if toServer {
 			p.logger.Debug("Parsing MongoDB request")
-			err := p.parseRequestStream(m, m.Timestamp)
+			err := p.parseRequestStream(m, m.Timestamp())
 			if err != io.EOF {
 				p.logger.WithError(err).Debug("Error parsing request")
 			}
 		} else {
 			p.logger.Debug("Parsing MongoDB response")
-			err := p.parseResponseStream(m, m.Timestamp)
+			err := p.parseResponseStream(m, m.Timestamp())
 			if err != io.EOF {
 				p.logger.WithError(err).Debug("Error parsing response")
 			}
@@ -116,7 +120,7 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 			q.Selector = string(m.Selector)
 			q.OpType = "update"
 			q.Collection = string(m.FullCollectionName)
-			p.Publish(q)
+			p.publish(q)
 		case OP_INSERT:
 			m, err := readInsertMsg(data)
 			if err != nil {
@@ -127,7 +131,7 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 			q.Timestamp = ts
 			q.NInserted = m.NInserted
 			q.Collection = string(m.FullCollectionName)
-			p.Publish(q)
+			p.publish(q)
 		case OP_QUERY:
 			m, err := readQueryMsg(data)
 			if err != nil {
@@ -180,7 +184,7 @@ func (p *Parser) parseResponseStream(r io.Reader, ts time.Time) error {
 				} else {
 					q.QueryTime = ts.Sub(q.Timestamp).Seconds()
 				}
-				p.Publish(q)
+				p.publish(q)
 			}
 
 		}
@@ -188,12 +192,16 @@ func (p *Parser) parseResponseStream(r io.Reader, ts time.Time) error {
 	}
 }
 
-func (p *Parser) Publish(q *QueryEvent) {
+func (p *Parser) publish(q *QueryEvent) {
 	q.ClientIP = p.flow.SrcIP.String()
 	q.ServerIP = p.flow.DstIP.String()
 	s, err := json.Marshal(&q)
 	if err != nil {
 		p.logger.Error("Error marshaling query event", err)
+	}
+	// TODO: better output handling
+	if p.sendFunc != nil {
+		p.sendFunc(s)
 	}
 	io.WriteString(os.Stdout, string(s))
 	io.WriteString(os.Stdout, "\n")
@@ -251,5 +259,4 @@ func newSafeBuffer(bufsize int) ([]byte, error) {
 		return nil, fmt.Errorf("Buffer size %d too large", bufsize)
 	}
 	return make([]byte, bufsize), nil
-
 }

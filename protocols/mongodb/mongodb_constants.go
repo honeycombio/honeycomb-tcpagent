@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
-	"log"
 
 	"gopkg.in/mgo.v2/bson"
 )
@@ -226,7 +225,6 @@ func readDocument(r io.Reader) (document, error) {
 	m := bson.M{}
 	err = bson.Unmarshal(buf, m)
 	if err != nil {
-		log.Printf("Error unmarshaling", buf)
 		return "", err
 	}
 	ret, err := bson.MarshalJSON(m)
