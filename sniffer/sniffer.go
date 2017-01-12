@@ -41,8 +41,6 @@ type afpacketSource struct {
 	*afpacket.TPacket
 }
 
-//func (a *afpacketSource) SetBPFFilter(filter string) error { return nil }
-
 type pcapSource struct {
 	*pcap.Handle
 }
