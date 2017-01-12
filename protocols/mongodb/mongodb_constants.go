@@ -225,7 +225,7 @@ func (e *errReader) DocumentArrayLength() int {
 			return 0
 		}
 
-		// Length of the remaineder of the document in bytes
+		// Length of the remainder of the document in bytes
 		innerLength := docLength - 4
 
 		if int(innerLength) > e.b.Len() {
