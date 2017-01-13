@@ -92,7 +92,7 @@ func TestParseInsert(t *testing.T) {
 	pf := ParserFactory{Options: Options{Port: 27017}, SendFunc: send}
 	p := pf.New(defaultFlow())
 	// TODO: better injection of test message data
-	collectionName := []byte("collection0")
+	collectionName := []byte("db.collection0")
 	doc := map[string]interface{}{
 		"a": "b",
 	}
@@ -110,11 +110,13 @@ func TestParseInsert(t *testing.T) {
 	assert.Equal(t, len(results), 1)
 	var ret map[string]interface{}
 	json.Unmarshal(results[0], &ret)
-	assert.Equal(t, ret["OpType"], "insert")
+	assert.Equal(t, ret["CommandType"], "insert")
 	assert.Equal(t, ret["NInserted"], float64(1))
 	assert.Equal(t, ret["ClientIP"], "10.0.0.22")
 	assert.Equal(t, ret["ServerIP"], "10.0.0.23")
 	assert.Equal(t, ret["Collection"], "collection0")
+	assert.Equal(t, ret["Database"], "db")
+	assert.Equal(t, ret["Namespace"], "db.collection0")
 	// TODO
 	//assert.Equal(t, ret["Timestamp"], ts)
 }

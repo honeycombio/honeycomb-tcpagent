@@ -22,6 +22,7 @@ type Event struct {
 	Timestamp   time.Time
 	ClientIP    string
 	ServerIP    string
+	Namespace   string
 	Database    string
 	Collection  string
 	CommandType string
@@ -114,15 +115,14 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 			}
 			q.Timestamp = ts
 			q.Command = m.Query
+			q.Namespace = string(m.FullCollectionName)
+			q.Database, q.Collection = parseFullCollectionName(string(m.FullCollectionName))
 			cmdType, ok := extractCommandType(m.Query)
-			fmt.Println("CMDTYPE", cmdType, ok, m.Query)
 			if ok {
 				q.CommandType = string(cmdType)
 				q.Command = m.Query
 				if cmdType != GetMore {
 					q.Collection = m.Query[string(cmdType)].(string)
-				} else {
-					q.Database, q.Collection = parseFullCollectionName(string(m.FullCollectionName))
 				}
 			} else {
 				q.Database, q.Collection = parseFullCollectionName(string(m.FullCollectionName))
@@ -145,7 +145,8 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 			}
 			q.CommandType = "update"
 			q.Command = update
-			q.Collection = string(m.FullCollectionName)
+			q.Namespace = string(m.FullCollectionName)
+			q.Database, q.Collection = parseFullCollectionName(string(m.FullCollectionName))
 			p.publish(q)
 		case OP_INSERT:
 			m, err := readInsertMsg(data)
@@ -156,7 +157,8 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 			q.CommandType = "insert"
 			q.Timestamp = ts
 			q.NInserted = m.NInserted
-			q.Collection = string(m.FullCollectionName)
+			q.Namespace = string(m.FullCollectionName)
+			q.Database, q.Collection = parseFullCollectionName(string(m.FullCollectionName))
 			p.publish(q)
 		// TODO: others
 		case OP_DELETE:
@@ -277,7 +279,9 @@ func newSafeBuffer(bufsize int) ([]byte, error) {
 }
 
 func extractCommandType(m document) (cmdType opType, ok bool) {
-	for _, cmdType = range []opType{Insert, Update, Delete, GetMore, FindAndModify, Find, Count} {
+	// Order matters here, because "findAndModify" commands contain both
+	// "findAndModify" and "update" keys.
+	for _, cmdType = range []opType{FindAndModify, Insert, Update, Delete, GetMore, FindAndModify, Find, Count} {
 		_, ok := m[string(cmdType)]
 		if ok {
 			return cmdType, true
