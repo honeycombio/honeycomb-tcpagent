@@ -16,7 +16,7 @@ func newQCache(size int) *QCache {
 	}
 }
 
-func (qc *QCache) Pop(k int32) (*QueryEvent, bool) {
+func (qc *QCache) Pop(k int32) (*Event, bool) {
 	// We won't need the query event again once retrieved, so we just remove it
 	// right away.
 	v, ok := qc.cache.Peek(k)
@@ -24,7 +24,7 @@ func (qc *QCache) Pop(k int32) (*QueryEvent, bool) {
 		return nil, ok
 	}
 	qc.cache.Remove(k)
-	q, ok := v.(*QueryEvent)
+	q, ok := v.(*Event)
 	return q, ok
 }
 

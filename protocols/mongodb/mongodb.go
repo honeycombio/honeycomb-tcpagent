@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Sirupsen/logrus"
@@ -17,22 +18,18 @@ type Options struct {
 	Port uint16 `long:"port" description:"MongoDB port" default:"27017"`
 }
 
-// TODO: consider specializing this for different operation types, so as not to
-// return a blank `Update` field for OP_QUERY messages, for example.
-// Maybe also rename to OpType for clarity?
-type QueryEvent struct {
-	Timestamp  time.Time
-	ClientIP   string
-	ServerIP   string
-	QueryTime  float64
-	Query      string
-	OpType     string
-	Collection string
-	Selector   string
-	Update     string
-	RequestID  int32
-	NReturned  int32
-	NInserted  int
+type Event struct {
+	Timestamp   time.Time
+	ClientIP    string
+	ServerIP    string
+	Database    string
+	Collection  string
+	CommandType string
+	Command     document
+	DurationMs  float64
+	RequestID   int32
+	NReturned   int32
+	NInserted   int
 }
 
 // ParserFactory implements sniffer.ConsumerFactory
@@ -104,20 +101,50 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 			"responseTo":    header.ResponseTo,
 			"messageLength": header.MessageLength}).Debug("Parsed request header")
 
-		q := &QueryEvent{}
+		q := &Event{}
 		q.RequestID = header.RequestID
 		q.Timestamp = ts
 
 		switch header.OpCode {
+		case OP_QUERY:
+			m, err := readQueryMsg(data)
+			if err != nil {
+				p.logger.WithError(err).Debug("Error parsing query")
+				return err
+			}
+			q.Timestamp = ts
+			q.Command = m.Query
+			cmdType, ok := extractCommandType(m.Query)
+			fmt.Println("CMDTYPE", cmdType, ok, m.Query)
+			if ok {
+				q.CommandType = string(cmdType)
+				q.Command = m.Query
+				if cmdType != GetMore {
+					q.Collection = m.Query[string(cmdType)].(string)
+				} else {
+					q.Database, q.Collection = parseFullCollectionName(string(m.FullCollectionName))
+				}
+			} else {
+				q.Database, q.Collection = parseFullCollectionName(string(m.FullCollectionName))
+				// TODO: is this really right?
+				q.CommandType = "query"
+			}
+
+			p.qcache.Add(header.RequestID, q)
 		case OP_UPDATE:
 			m, err := readUpdateMsg(data)
 			if err != nil {
 				p.logger.WithError(err).Debug("Error parsing update")
 				return err
 			}
-			q.Update = string(m.Update)
-			q.Selector = string(m.Selector)
-			q.OpType = "update"
+			// Grunge this into the more modern update syntax
+			// TODO: do we really want to do this?
+			update := map[string]interface{}{
+				"u": m.Update,
+				"q": m.Selector,
+			}
+			q.CommandType = "update"
+			q.Command = update
 			q.Collection = string(m.FullCollectionName)
 			p.publish(q)
 		case OP_INSERT:
@@ -126,22 +153,11 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 				p.logger.WithError(err).Debug("Error parsing insert")
 				return err
 			}
-			q.OpType = "insert"
+			q.CommandType = "insert"
 			q.Timestamp = ts
 			q.NInserted = m.NInserted
 			q.Collection = string(m.FullCollectionName)
 			p.publish(q)
-		case OP_QUERY:
-			m, err := readQueryMsg(data)
-			if err != nil {
-				p.logger.WithError(err).Debug("Error parsing query")
-				return err
-			}
-			q.OpType = "query"
-			q.Timestamp = ts
-			q.Collection = string(m.FullCollectionName)
-			q.Query = string(m.Query)
-			p.qcache.Add(header.RequestID, q)
 		// TODO: others
 		case OP_DELETE:
 			// TODO
@@ -179,9 +195,9 @@ func (p *Parser) parseResponseStream(r io.Reader, ts time.Time) error {
 					p.logger.WithFields(logrus.Fields{
 						"end":   ts,
 						"start": q.Timestamp}).Debug("End timestamp before start")
-					q.QueryTime = 0
+					q.DurationMs = 0
 				} else {
-					q.QueryTime = ts.Sub(q.Timestamp).Seconds()
+					q.DurationMs = float64(ts.Sub(q.Timestamp).Nanoseconds()) / 1e6
 				}
 				p.publish(q)
 			}
@@ -191,7 +207,7 @@ func (p *Parser) parseResponseStream(r io.Reader, ts time.Time) error {
 	}
 }
 
-func (p *Parser) publish(q *QueryEvent) {
+func (p *Parser) publish(q *Event) {
 	q.ClientIP = p.flow.SrcIP.String()
 	q.ServerIP = p.flow.DstIP.String()
 	s, err := json.Marshal(&q)
@@ -258,4 +274,22 @@ func newSafeBuffer(bufsize int) ([]byte, error) {
 		return nil, fmt.Errorf("Buffer size %d too large", bufsize)
 	}
 	return make([]byte, bufsize), nil
+}
+
+func extractCommandType(m document) (cmdType opType, ok bool) {
+	for _, cmdType = range []opType{Insert, Update, Delete, GetMore, FindAndModify, Find, Count} {
+		_, ok := m[string(cmdType)]
+		if ok {
+			return cmdType, true
+		}
+	}
+	return cmdType, false
+}
+
+func parseFullCollectionName(fullCollectionName string) (db string, collection string) {
+	b := strings.SplitN(fullCollectionName, ".", 2)
+	if len(b) < 2 {
+		return b[0], ""
+	}
+	return b[0], b[1]
 }

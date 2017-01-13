@@ -24,7 +24,19 @@ const (
 	OP_COMMANDREPLY = 2011
 )
 
-type document string
+type opType string
+
+const (
+	Find          opType = "find"
+	Insert               = "insert"
+	Update               = "update"
+	Delete               = "delete"
+	GetMore              = "getMore"
+	FindAndModify        = "findAndModify"
+	Count                = "count"
+)
+
+type document bson.M
 type cstring []byte
 
 type updateMsg struct {
@@ -182,33 +194,31 @@ func newErrReader(data []byte) *errReader {
 
 func (e *errReader) Document() document {
 	if e.err != nil {
-		return ""
+		return nil
 	}
 	var length uint32
 	e.err = binary.Read(e.b, binary.LittleEndian, &length)
 	if e.err != nil {
-		return ""
+		return nil
 	}
 	var buf []byte
 	buf, e.err = newSafeBuffer(int(length))
 	if e.err != nil {
-		return ""
+		return nil
 	}
 
 	binary.LittleEndian.PutUint32(buf[:4], length)
 	_, e.err = e.b.Read(buf[4:])
 	if e.err != nil {
-		return ""
+		return nil
 	}
 
 	m := bson.M{}
 	e.err = bson.Unmarshal(buf, m)
 	if e.err != nil {
-		return ""
+		return nil
 	}
-	var ret []byte
-	ret, e.err = bson.MarshalJSON(m)
-	return document(ret)
+	return document(m)
 }
 
 func (e *errReader) DocumentArrayLength() int {
