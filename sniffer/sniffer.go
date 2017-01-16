@@ -2,6 +2,7 @@ package sniffer
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"time"
@@ -145,6 +146,7 @@ loop:
 				foundNetLayer = true
 			case layers.LayerTypeTCP:
 				if foundNetLayer {
+					fmt.Println("ASSEMBLING", tcp.Seq, tcp.Ack, tcp.DstPort)
 					assembler.AssembleWithContext(netFlow, &tcp, &Context{CaptureInfo: ci})
 					continue loop
 				}

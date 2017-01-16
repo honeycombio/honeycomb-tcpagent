@@ -259,6 +259,7 @@ func readRawMsg(r io.Reader) (*msgHeader, []byte, error) {
 	bytesRead := 0
 	data, err := newSafeBuffer(shouldRead)
 	if err != nil {
+		fmt.Println("ERROR ALLOCATING BUFFER", header)
 		return nil, nil, err
 	}
 	for {

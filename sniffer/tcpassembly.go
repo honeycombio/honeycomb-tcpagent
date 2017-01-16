@@ -1,6 +1,7 @@
 package sniffer
 
 import (
+	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -43,13 +44,15 @@ type Stream struct {
 
 // TODO: need to handle gaps!
 func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.AssemblerContext) {
-	dir, _, _, _ := sg.Info()
+	dir, start, end, skip := sg.Info()
 
 	length, _ := sg.Lengths()
 	data := sg.Fetch(length)
+	fmt.Println("CALLED REASSEMBLED", dir, start, end, skip, data)
 	if s.started && s.currDir == dir {
 		s.current.bytes <- data
 	} else {
+		fmt.Println("STARTING NEW MESSAGE")
 		if s.started {
 			close(s.current.bytes)
 		}
@@ -63,6 +66,7 @@ func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.Assemb
 		s.messages <- s.current
 		s.current.bytes <- data
 	}
+	fmt.Println("REASSEMBLY DONE")
 }
 
 // Implements Message
