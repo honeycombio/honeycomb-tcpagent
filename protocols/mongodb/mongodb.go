@@ -144,6 +144,7 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 				q.CommandType = "query"
 			}
 
+			p.logger.WithField("key", header.RequestID).Debug("Caching query")
 			p.qcache.Add(header.RequestID, q)
 		case OP_UPDATE:
 			m, err := readUpdateMsg(data)
