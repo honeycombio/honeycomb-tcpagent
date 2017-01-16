@@ -113,6 +113,7 @@ func (s *Stream) ReassemblyComplete(ac reassembly.AssemblerContext) bool {
 func (s *Stream) Accept(tcp *layers.TCP, ci gopacket.CaptureInfo, dir reassembly.TCPFlowDirection,
 	ackSeq reassembly.Sequence, start *bool, ac reassembly.AssemblerContext) bool {
 	// TODO?
+	// should modify start to start stream even if no SYN has been seen!
 	return true
 }
 
