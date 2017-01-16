@@ -3,7 +3,6 @@ package mongodb
 import (
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -254,7 +253,7 @@ func readRawMsg(r io.Reader) (*msgHeader, []byte, error) {
 	}
 	// messageLength should include the header bytes
 	if header.MessageLength < 16 {
-		return nil, nil, errors.New("Invalid message length in header")
+		return nil, nil, fmt.Errorf("Invalid message length %d in header", header.MessageLength)
 	}
 	shouldRead := int(header.MessageLength - 16)
 	bytesRead := 0
