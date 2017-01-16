@@ -3,7 +3,7 @@ package mongodb
 import (
 	"bytes"
 	"encoding/binary"
-	"io"
+	"errors"
 
 	"gopkg.in/mgo.v2/bson"
 )
@@ -239,7 +239,8 @@ func (e *errReader) DocumentArrayLength() int {
 		innerLength := docLength - 4
 
 		if int(innerLength) > e.b.Len() {
-			e.err = io.EOF
+			// TODO: better error typing
+			e.err = errors.New("DocumentArrayLength out-of-bound read")
 			return 0
 		}
 		e.b.Next(int(innerLength))
