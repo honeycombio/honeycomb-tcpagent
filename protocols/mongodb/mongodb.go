@@ -87,6 +87,20 @@ func (p *Parser) On(ms sniffer.MessageStream) {
 				p.logger.WithError(err).Debug("Error parsing response")
 			}
 		}
+		// TODO: refactor into DiscardBytes()
+		discardBuffer := make([]byte, 4096)
+		discarded := 0
+		for {
+			n, err := m.Read(discardBuffer)
+			discarded += n
+			if err != nil {
+				if discarded != 0 {
+					p.logger.WithField("discarded", discarded).
+						Debug("Discarded remainder of message")
+				}
+				break
+			}
+		}
 	}
 }
 
