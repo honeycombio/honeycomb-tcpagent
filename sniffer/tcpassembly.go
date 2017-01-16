@@ -58,7 +58,7 @@ func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.Assemb
 		s.current = &message{
 			flow:      s.getFlow(dir),
 			timestamp: ac.GetCaptureInfo().Timestamp,
-			bytes:     make(chan []byte),
+			bytes:     make(chan []byte, 100),
 		}
 		s.messages <- s.current
 		s.current.bytes <- data
@@ -143,7 +143,10 @@ func NewStreamFactory(cf ConsumerFactory) *streamFactory {
 
 func (f *streamFactory) New(net, transport gopacket.Flow, tcp *layers.TCP, ac reassembly.AssemblerContext) reassembly.Stream {
 	flow := NewIPPortTuple(net, transport)
-	s := &Stream{flow: flow, messages: make(chan *message)}
+	s := &Stream{
+		flow:     flow,
+		messages: make(chan *message, 32),
+	}
 	s.consumer = f.cf.New(flow)
 	logrus.WithFields(logrus.Fields{"flow": flow}).Debug("Creating new stream")
 	go s.consumer.On(s)
