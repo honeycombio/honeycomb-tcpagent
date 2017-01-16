@@ -17,13 +17,15 @@ import (
 const (
 	PCap     = "pcap"
 	Afpacket = "af_packet"
+	Offline  = "offline"
 )
 
 type Options struct {
-	SourceType string `long:"type" default:"pcap" description:"Packet capture mechanism (pcap or af_packet)"`
+	SourceType string `long:"type" default:"pcap" description:"Packet capture mechanism (pcap, af_packet or offline)"`
 	Device     string `long:"device" description:"Network interface to listen on"`
 	SnapLen    int    `long:"snaplen" default:"65535" description:"Capture snapshot length"`
 	BufSizeMb  int    `long:"bufsize" description:"AF_PACKET buffer size in megabytes" default:"30"`
+	PcapFile   string `long:"pcapfile" description:"For offline packet captures, path to pcap file"`
 }
 
 type Sniffer struct {
@@ -47,8 +49,8 @@ type pcapSource struct {
 
 func New(options Options, cf ConsumerFactory) (*Sniffer, error) {
 	s := &Sniffer{iface: options.Device, consumerFactory: cf}
+	var err error
 	if options.SourceType == PCap {
-		var err error
 		if s.iface == "" {
 			s.iface = "any"
 		}
@@ -65,12 +67,17 @@ func New(options Options, cf ConsumerFactory) (*Sniffer, error) {
 		if err != nil {
 			return nil, err
 		}
+	} else if options.SourceType == Offline {
+		s.packetSource, err = pcap.OpenOffline(options.PcapFile)
+		if err != nil {
+			return nil, err
+		}
 	} else {
 		return nil, errors.New("Unsupported packet source type")
 	}
 
 	// TODO: support concatenating multiple BPF filters
-	err := s.packetSource.SetBPFFilter(cf.BPFFilter())
+	err = s.packetSource.SetBPFFilter(cf.BPFFilter())
 	if err != nil {
 		return nil, err
 	}
@@ -87,6 +94,8 @@ func (sniffer *Sniffer) Run() error {
 		linkLayerType = layers.LayerTypeEthernet
 
 	}
+	// TODO debug only
+	linkLayerType = layers.LayerTypeLinuxSLL
 
 	factory := NewStreamFactory(sniffer.consumerFactory)
 	streamPool := reassembly.NewStreamPool(factory)
