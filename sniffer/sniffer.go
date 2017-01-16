@@ -17,20 +17,21 @@ import (
 const (
 	PCap     = "pcap"
 	Afpacket = "af_packet"
+	Offline  = "offline"
 )
 
 type Options struct {
-	SourceType   string `long:"type" default:"pcap" description:"Packet capture mechanism (pcap or af_packet)"`
+	SourceType   string `long:"type" default:"pcap" description:"Packet capture mechanism (pcap, af_packet or offline)"`
 	Device       string `long:"device" description:"Network interface to listen on"`
 	SnapLen      int    `long:"snaplen" default:"65535" description:"Capture snapshot length"`
 	BufSizeMb    int    `long:"bufsize" description:"AF_PACKET buffer size in megabytes" default:"30"`
 	FlushTimeout int    `long:"flushtimeout" description:"Time in seconds to wait before flushing buffered data for a connection" default:"60"`
+	PcapFile     string `long:"pcapfile" description:"For offline packet captures, path to pcap file"`
 }
 
 type Sniffer struct {
 	packetSource    packetDataSource
 	consumerFactory ConsumerFactory
-	iface           string
 	flushTimeout    time.Duration
 	closeTimeout    time.Duration
 }
@@ -38,14 +39,27 @@ type Sniffer struct {
 type packetDataSource interface {
 	gopacket.PacketDataSource
 	SetBPFFilter(filter string) error
+	LinkLayerType() gopacket.LayerType
 }
 
 type afpacketSource struct {
 	*afpacket.TPacket
 }
 
+func (a *afpacketSource) LinkLayerType() gopacket.LayerType {
+	return layers.LayerTypeEthernet
+}
+
 type pcapSource struct {
 	*pcap.Handle
+}
+
+func (p *pcapSource) LinkLayerType() gopacket.LayerType {
+	if p.LinkType() == layers.LinkTypeLinuxSLL {
+		return layers.LayerTypeLinuxSLL
+	} else {
+		return layers.LayerTypeEthernet
+	}
 }
 
 func New(options Options, cf ConsumerFactory) (*Sniffer, error) {
@@ -53,17 +67,13 @@ func New(options Options, cf ConsumerFactory) (*Sniffer, error) {
 	// TODO: does the close timeout really need to be configurable?
 	closeTimeout := time.Duration(3600) * time.Second
 	s := &Sniffer{
-		iface:           options.Device,
 		consumerFactory: cf,
 		flushTimeout:    flushTimeout,
 		closeTimeout:    closeTimeout,
 	}
+	var err error
 	if options.SourceType == PCap {
-		var err error
-		if s.iface == "" {
-			s.iface = "any"
-		}
-		s.packetSource, err = newPcapHandle(s.iface, options.SnapLen, pcap.BlockForever) // TODO: make timeout configurable again? Or just don't bother
+		s.packetSource, err = newPcapHandle(options.Device, options.SnapLen, pcap.BlockForever) // TODO: make timeout configurable again? Or just don't bother
 		if err != nil {
 			return nil, err
 		}
@@ -72,7 +82,12 @@ func New(options Options, cf ConsumerFactory) (*Sniffer, error) {
 		if err != nil {
 			return nil, err
 		}
-		s.packetSource, err = newAfpacketHandle(s.iface, frameSize, blockSize, numBlocks, pcap.BlockForever)
+		s.packetSource, err = newAfpacketHandle(options.Device, frameSize, blockSize, numBlocks, pcap.BlockForever)
+		if err != nil {
+			return nil, err
+		}
+	} else if options.SourceType == Offline {
+		s.packetSource, err = newOfflineHandle(options.PcapFile)
 		if err != nil {
 			return nil, err
 		}
@@ -81,7 +96,7 @@ func New(options Options, cf ConsumerFactory) (*Sniffer, error) {
 	}
 
 	// TODO: support concatenating multiple BPF filters
-	err := s.packetSource.SetBPFFilter(cf.BPFFilter())
+	err = s.packetSource.SetBPFFilter(cf.BPFFilter())
 	if err != nil {
 		return nil, err
 	}
@@ -91,18 +106,11 @@ func New(options Options, cf ConsumerFactory) (*Sniffer, error) {
 }
 
 func (sniffer *Sniffer) Run() error {
-	var linkLayerType gopacket.LayerType
-	if sniffer.iface == "any" {
-		linkLayerType = layers.LayerTypeLinuxSLL
-	} else {
-		linkLayerType = layers.LayerTypeEthernet
-
-	}
-
 	factory := NewStreamFactory(sniffer.consumerFactory)
 	streamPool := reassembly.NewStreamPool(factory)
 	assembler := reassembly.NewAssembler(streamPool)
 
+	linkLayerType := sniffer.packetSource.LinkLayerType()
 	var sll layers.LinuxSLL
 	var eth layers.Ethernet
 	var ip4 layers.IPv4
@@ -168,11 +176,10 @@ loop:
 	return nil
 }
 
-func (sniffer *Sniffer) SetBPFFilter(filter string) error {
-	return sniffer.packetSource.SetBPFFilter(filter)
-}
-
 func newPcapHandle(iface string, snaplen int, pollTimeout time.Duration) (*pcapSource, error) {
+	if iface == "" {
+		iface = "any"
+	}
 	h, err := pcap.OpenLive(iface, int32(snaplen), true, pollTimeout)
 	return &pcapSource{h}, err
 }
@@ -187,6 +194,11 @@ func newAfpacketHandle(iface string, frameSize int, blockSize int, numBlocks int
 		afpacket.OptPollTimeout(pollTimeout),
 		afpacket.OptTPacketVersion(afpacket.TPacketVersion2)) // work around https://github.com/google/gopacket/issues/80
 	return &afpacketSource{h}, err
+}
+
+func newOfflineHandle(filepath string) (*pcapSource, error) {
+	h, err := pcap.OpenOffline(filepath)
+	return &pcapSource{h}, err
 }
 
 func afpacketComputeSize(targetSizeMb int, snaplen int, pageSize int) (
