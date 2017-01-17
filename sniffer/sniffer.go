@@ -20,16 +20,19 @@ const (
 )
 
 type Options struct {
-	SourceType string `long:"type" default:"pcap" description:"Packet capture mechanism (pcap or af_packet)"`
-	Device     string `long:"device" description:"Network interface to listen on"`
-	SnapLen    int    `long:"snaplen" default:"65535" description:"Capture snapshot length"`
-	BufSizeMb  int    `long:"bufsize" description:"AF_PACKET buffer size in megabytes" default:"30"`
+	SourceType   string `long:"type" default:"pcap" description:"Packet capture mechanism (pcap or af_packet)"`
+	Device       string `long:"device" description:"Network interface to listen on"`
+	SnapLen      int    `long:"snaplen" default:"65535" description:"Capture snapshot length"`
+	BufSizeMb    int    `long:"bufsize" description:"AF_PACKET buffer size in megabytes" default:"30"`
+	FlushTimeout int    `long:"flushtimeout" description:"Time in seconds to wait before flushing buffered data for a connection" default:"60"`
 }
 
 type Sniffer struct {
 	packetSource    packetDataSource
 	consumerFactory ConsumerFactory
 	iface           string
+	flushTimeout    time.Duration
+	closeTimeout    time.Duration
 }
 
 type packetDataSource interface {
@@ -46,7 +49,15 @@ type pcapSource struct {
 }
 
 func New(options Options, cf ConsumerFactory) (*Sniffer, error) {
-	s := &Sniffer{iface: options.Device, consumerFactory: cf}
+	flushTimeout := time.Duration(options.FlushTimeout) * time.Second
+	// TODO: does the close timeout really need to be configurable?
+	closeTimeout := time.Duration(3600) * time.Second
+	s := &Sniffer{
+		iface:           options.Device,
+		consumerFactory: cf,
+		flushTimeout:    flushTimeout,
+		closeTimeout:    closeTimeout,
+	}
 	if options.SourceType == PCap {
 		var err error
 		if s.iface == "" {
@@ -100,6 +111,8 @@ func (sniffer *Sniffer) Run() error {
 	var payload gopacket.Payload
 	decoder := gopacket.NewDecodingLayerParser(linkLayerType, &sll, &eth, &ip4, &ip6, &tcp, &payload)
 	decodedLayers := make([]gopacket.LayerType, 0, 10)
+	ctr := 0
+
 loop:
 	for {
 		packetData, ci, err := sniffer.packetSource.ReadPacketData()
@@ -121,6 +134,15 @@ loop:
 		if err != nil {
 			logrus.WithError(err).Error("Error decoding packet")
 			continue
+		}
+
+		ctr++
+		flushOptions := reassembly.FlushOptions{
+			T:  ci.Timestamp.Add(-sniffer.flushTimeout),
+			TC: ci.Timestamp.Add(-sniffer.closeTimeout),
+		}
+		if ctr%1000 == 0 {
+			assembler.FlushWithOptions(flushOptions)
 		}
 
 		var netFlow gopacket.Flow
