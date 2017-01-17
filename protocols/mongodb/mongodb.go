@@ -182,6 +182,8 @@ func (p *Parser) parseResponseStream(r io.Reader, ts time.Time) error {
 			"messageLength": header.MessageLength}).Debug("Parsed response header")
 		switch header.OpCode {
 		case OP_REPLY:
+			// TODO: For inserts and the like, we actually need to read the
+			// response payload.
 			m, err := readReplyMsg(data)
 			if err != nil {
 				return err
@@ -192,7 +194,6 @@ func (p *Parser) parseResponseStream(r io.Reader, ts time.Time) error {
 					Debug("Query not found in cache")
 			} else {
 				q.NReturned = m.NumberReturned
-
 				if !ts.After(q.Timestamp) {
 					p.logger.WithFields(logrus.Fields{
 						"end":   ts,

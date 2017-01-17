@@ -3,6 +3,7 @@ package mongodb
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 
 	"gopkg.in/mgo.v2/bson"
@@ -199,6 +200,10 @@ func (e *errReader) Document() document {
 	var length uint32
 	e.err = binary.Read(e.b, binary.LittleEndian, &length)
 	if e.err != nil {
+		return nil
+	}
+	if length < 4 {
+		e.err = fmt.Errorf("Invalid BSON document length %v", length)
 		return nil
 	}
 	var buf []byte

@@ -43,7 +43,12 @@ type Stream struct {
 
 // TODO: need to handle gaps!
 func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.AssemblerContext) {
-	dir, _, _, _ := sg.Info()
+	dir, _, _, skip := sg.Info()
+	if skip > 0 {
+		logrus.WithFields(logrus.Fields{
+			"skipped": skip,
+			"flow":    s.getFlow(dir)}).Warn("Skipped bytes in stream")
+	}
 
 	length, _ := sg.Lengths()
 	data := sg.Fetch(length)
