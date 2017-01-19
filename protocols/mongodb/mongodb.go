@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
@@ -36,8 +35,8 @@ type Event struct {
 // ParserFactory implements sniffer.ConsumerFactory
 // TODO: this way of setting things up is kind of confusing
 type ParserFactory struct {
-	Options  Options
-	SendFunc func([]byte)
+	Options     Options
+	PublishFunc func([]byte)
 }
 
 func (pf *ParserFactory) New(flow sniffer.IPPortTuple) sniffer.Consumer {
@@ -45,11 +44,11 @@ func (pf *ParserFactory) New(flow sniffer.IPPortTuple) sniffer.Consumer {
 		flow = flow.Reverse()
 	}
 	return &Parser{
-		options:  pf.Options,
-		flow:     flow,
-		qcache:   newQCache(128),
-		logger:   logrus.WithFields(logrus.Fields{"flow": flow, "component": "mongodb"}),
-		sendFunc: pf.SendFunc,
+		options:     pf.Options,
+		flow:        flow,
+		qcache:      newQCache(128),
+		logger:      logrus.WithFields(logrus.Fields{"flow": flow, "component": "mongodb"}),
+		publishFunc: pf.PublishFunc,
 	}
 }
 
@@ -59,11 +58,11 @@ func (pf *ParserFactory) BPFFilter() string {
 
 // Parser implements sniffer.Consumer
 type Parser struct {
-	options  Options
-	flow     sniffer.IPPortTuple
-	qcache   *QCache
-	logger   *logrus.Entry
-	sendFunc func([]byte)
+	options     Options
+	flow        sniffer.IPPortTuple
+	qcache      *QCache
+	logger      *logrus.Entry
+	publishFunc func([]byte)
 }
 
 func (p *Parser) On(ms sniffer.MessageStream) {
@@ -217,12 +216,7 @@ func (p *Parser) publish(q *Event) {
 	if err != nil {
 		p.logger.Error("Error marshaling query event", err)
 	}
-	// TODO: better output handling
-	if p.sendFunc != nil {
-		p.sendFunc(s)
-	}
-	io.WriteString(os.Stdout, string(s))
-	io.WriteString(os.Stdout, "\n")
+	p.publishFunc(s)
 }
 
 type msgHeader struct {

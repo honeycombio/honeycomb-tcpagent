@@ -28,6 +28,6 @@ func (qc *QCache) Pop(k int32) (*Event, bool) {
 	return q, ok
 }
 
-func (qc *QCache) Add(k int32, v interface{}) {
+func (qc *QCache) Add(k int32, v *Event) {
 	qc.cache.Add(k, v)
 }

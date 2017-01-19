@@ -9,6 +9,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/honeycombio/honeypacket/protocols/mongodb"
 	"github.com/honeycombio/honeypacket/protocols/mysql"
+	"github.com/honeycombio/honeypacket/publish"
 	"github.com/honeycombio/honeypacket/sniffer"
 
 	flag "github.com/jessevdk/go-flags"
@@ -47,7 +48,10 @@ func run(options *GlobalOptions) error {
 	if options.ParserName == "mysql" {
 		pf = &mysql.ParserFactory{Options: options.MySQL}
 	} else if options.ParserName == "mongodb" {
-		pf = &mongodb.ParserFactory{Options: options.MongoDB}
+		pf = &mongodb.ParserFactory{
+			Options:     options.MongoDB,
+			PublishFunc: publish.Publish,
+		}
 	} else {
 		// TODO: this error should be better
 		log.Println("Invalid parser name")
