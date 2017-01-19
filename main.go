@@ -49,8 +49,8 @@ func run(options *GlobalOptions) error {
 		pf = &mysql.ParserFactory{Options: options.MySQL}
 	} else if options.ParserName == "mongodb" {
 		pf = &mongodb.ParserFactory{
-			Options:     options.MongoDB,
-			PublishFunc: publish.Publish,
+			Options:   options.MongoDB,
+			Publisher: publish.NewBufferedPublisher(1024),
 		}
 	} else {
 		// TODO: this error should be better

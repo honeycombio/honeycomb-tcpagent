@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/honeycombio/honeypacket/publish"
 	"github.com/honeycombio/honeypacket/sniffer"
 )
 
@@ -35,8 +36,8 @@ type Event struct {
 // ParserFactory implements sniffer.ConsumerFactory
 // TODO: this way of setting things up is kind of confusing
 type ParserFactory struct {
-	Options     Options
-	PublishFunc func([]byte)
+	Options   Options
+	Publisher publish.Publisher
 }
 
 func (pf *ParserFactory) New(flow sniffer.IPPortTuple) sniffer.Consumer {
@@ -44,11 +45,11 @@ func (pf *ParserFactory) New(flow sniffer.IPPortTuple) sniffer.Consumer {
 		flow = flow.Reverse()
 	}
 	return &Parser{
-		options:     pf.Options,
-		flow:        flow,
-		qcache:      newQCache(128),
-		logger:      logrus.WithFields(logrus.Fields{"flow": flow, "component": "mongodb"}),
-		publishFunc: pf.PublishFunc,
+		options:   pf.Options,
+		flow:      flow,
+		qcache:    newQCache(128),
+		logger:    logrus.WithFields(logrus.Fields{"flow": flow, "component": "mongodb"}),
+		publisher: pf.Publisher,
 	}
 }
 
@@ -58,11 +59,11 @@ func (pf *ParserFactory) BPFFilter() string {
 
 // Parser implements sniffer.Consumer
 type Parser struct {
-	options     Options
-	flow        sniffer.IPPortTuple
-	qcache      *QCache
-	logger      *logrus.Entry
-	publishFunc func([]byte)
+	options   Options
+	flow      sniffer.IPPortTuple
+	qcache    *QCache
+	logger    *logrus.Entry
+	publisher publish.Publisher
 }
 
 func (p *Parser) On(ms sniffer.MessageStream) {
@@ -216,7 +217,10 @@ func (p *Parser) publish(q *Event) {
 	if err != nil {
 		p.logger.Error("Error marshaling query event", err)
 	}
-	p.publishFunc(s)
+	ok := p.publisher.Publish(s)
+	if !ok {
+		p.logger.Debug("Failed to publish event")
+	}
 }
 
 type msgHeader struct {
