@@ -14,6 +14,9 @@ import (
 	"github.com/honeycombio/honeypacket/sniffer"
 )
 
+// Truncate serialized documents longer than this before publishing them
+const maxDocLength = 500
+
 type Options struct {
 	Port uint16 `long:"port" description:"MongoDB port" default:"27017"`
 }
@@ -31,6 +34,32 @@ type Event struct {
 	RequestID   int32
 	NReturned   int32
 	NInserted   int
+}
+
+func truncate(d document) ([]byte, error) {
+	b, err := json.Marshal(d)
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > maxDocLength {
+		b = append(b[:maxDocLength-4], " ..."...)
+	}
+	return b, nil
+}
+
+func (e *Event) MarshalJSON() ([]byte, error) {
+	type Wrapper Event
+	serializedCommand, err := truncate(e.Command)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(&struct {
+		Command string
+		*Wrapper
+	}{
+		Command: string(serializedCommand),
+		Wrapper: (*Wrapper)(e),
+	})
 }
 
 // ParserFactory implements sniffer.ConsumerFactory
@@ -215,7 +244,7 @@ func (p *Parser) publish(q *Event) {
 	q.ServerIP = p.flow.DstIP.String()
 	s, err := json.Marshal(&q)
 	if err != nil {
-		p.logger.Error("Error marshaling query event", err)
+		p.logger.WithError(err).Error("Error marshaling query event")
 	}
 	ok := p.publisher.Publish(s)
 	if !ok {
