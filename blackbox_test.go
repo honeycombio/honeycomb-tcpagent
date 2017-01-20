@@ -1,4 +1,4 @@
-package blackbox_test
+package main_test
 
 import (
 	"fmt"
