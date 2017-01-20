@@ -5,8 +5,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/honeycombio/honeypacket/protocols/mongodb"
-	"github.com/honeycombio/honeypacket/sniffer"
+	"github.com/honeycombio/honeycomb-tcpagent/protocols/mongodb"
+	"github.com/honeycombio/honeycomb-tcpagent/sniffer"
 	"github.com/stretchr/testify/assert"
 )
 

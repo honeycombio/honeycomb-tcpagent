@@ -9,10 +9,10 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/codahale/metrics"
-	"github.com/honeycombio/honeypacket/protocols/mongodb"
-	"github.com/honeycombio/honeypacket/protocols/mysql"
-	"github.com/honeycombio/honeypacket/publish"
-	"github.com/honeycombio/honeypacket/sniffer"
+	"github.com/honeycombio/honeycomb-tcpagent/protocols/mongodb"
+	"github.com/honeycombio/honeycomb-tcpagent/protocols/mysql"
+	"github.com/honeycombio/honeycomb-tcpagent/publish"
+	"github.com/honeycombio/honeycomb-tcpagent/sniffer"
 
 	flag "github.com/jessevdk/go-flags"
 )

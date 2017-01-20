@@ -1,15 +1,17 @@
-[![Build Status](https://travis-ci.org/honeycombio/honeypacket.svg?branch=master)](https://travis-ci.org/honeycombio/honeypacket)
+[![Build Status](https://travis-ci.org/honeycombio/honeycomb-tcpagent.svg?branch=master)](https://travis-ci.org/honeycombio/honeycomb-tcpagent)
 
-Honeypacket captures database network traffic and writes it as structured JSON to stdout, enabling query-level visibility with low overhead. Currently, MongoDB is supported and MySQL is under development. [Get in touch](https://honeycomb.io/help/) if you'd like support for something else!
+`honeycomb-tcpagent` captures database network traffic and writes it as structured JSON to stdout, enabling query-level visibility with low overhead. Currently, MongoDB is supported and MySQL is under development. [Get in touch](https://honeycomb.io/help/) if you'd like support for something else!
+
+[See the documentation](https://honeycomb.io/docs/mongodb/tcp) for instructions on using `honeycomb-tcpagent` to send data to [Honeycomb](https://honeycomb.io).
 
 
-## Quickstart For Go users
+## Development instructions
 
 
 ```
 sudo apt-get install -y libpcap0.8-dev
-go get github.com/honeycombio/honeypacket
-sudo setcap cap_net_raw=eip $GOPATH/bin/honeypacket
+go get github.com/honeycombio/honeycomb-tcpagent
+sudo setcap cap_net_raw=eip $GOPATH/bin/honeycomb-tcpagent
 ```
 
-Then run `honeypacket` to start capturing traffic.
+Then run `honeycomb-tcpagent` to start capturing traffic.

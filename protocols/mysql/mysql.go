@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/honeycombio/honeypacket/sniffer"
+	"github.com/honeycombio/honeycomb-tcpagent/sniffer"
 )
 
 type Options struct {

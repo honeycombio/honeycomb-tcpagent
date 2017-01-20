@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/honeycombio/honeypacket/publish"
-	"github.com/honeycombio/honeypacket/sniffer"
+	"github.com/honeycombio/honeycomb-tcpagent/publish"
+	"github.com/honeycombio/honeycomb-tcpagent/sniffer"
 	"github.com/stretchr/testify/assert"
 
 	"gopkg.in/mgo.v2/bson"

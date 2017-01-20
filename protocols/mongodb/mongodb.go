@@ -11,8 +11,8 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/codahale/metrics"
-	"github.com/honeycombio/honeypacket/publish"
-	"github.com/honeycombio/honeypacket/sniffer"
+	"github.com/honeycombio/honeycomb-tcpagent/publish"
+	"github.com/honeycombio/honeycomb-tcpagent/sniffer"
 )
 
 // Truncate serialized documents longer than this before publishing them
