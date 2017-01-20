@@ -1,7 +1,4 @@
-(Under development)
-
-Honeypacket captures database network traffic and writes it as structured JSON
-to stdout, enabling query-level visibility with low overhead.
+Honeypacket captures database network traffic and writes it as structured JSON to stdout, enabling query-level visibility with low overhead. Currently, MongoDB is supported and MySQL is under development. [Get in touch](https://honeycomb.io/help/) if you'd like support for something else!
 
 
 ## Quickstart For Go users
