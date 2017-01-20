@@ -65,7 +65,7 @@ func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.Assemb
 		s.current = &message{
 			flow:      s.getFlow(dir),
 			timestamp: ac.GetCaptureInfo().Timestamp,
-			bytes:     make(chan []byte, 100),
+			bytes:     make(chan []byte, 32),
 		}
 		s.messages <- s.current
 		s.current.bytes <- data
