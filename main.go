@@ -17,7 +17,7 @@ import (
 
 type GlobalOptions struct {
 	Help       bool            `short:"h" long:"help" description:"Show this help message"`
-	Debug      bool            `long:"debug"`
+	Debug      bool            `long:"debug" description:"Print verbose debug logs"`
 	MySQL      mysql.Options   `group:"MySQL parser options" namespace:"mysql"`
 	MongoDB    mongodb.Options `group:"MongoDB parser options" namespace:"mongodb"`
 	Sniffer    sniffer.Options `group:"Packet capture options" namespace:"capture"`
@@ -53,14 +53,15 @@ func run(options *GlobalOptions) error {
 			Publisher: publish.NewBufferedPublisher(1024),
 		}
 	} else {
-		// TODO: this error should be better
-		log.Println("Invalid parser name")
+		log.Println("`%s` isn't a supported parser name.")
+		log.Println("Valid parsers are `mongodb` and `mysql`.")
 		os.Exit(1)
 	}
+
 	sniffer, err := sniffer.New(options.Sniffer, pf)
 	if err != nil {
-		log.Println("Failed to configure sniffer:")
-		log.Printf("\t%s\n", err)
+		log.Println("Failed to configure listener.")
+		log.Printf("Error: %s\n", err)
 		return err
 	}
 	log.Println("Listening for traffic")
