@@ -17,3 +17,9 @@ script: go test github.com/honeycombio/honeypacket/...
 after_success:
   - rm $GOPATH/bin/honeypacket
   - go install -ldflags "-X main.BuildID=1.${TRAVIS_BUILD_NUMBER}" github.com/honeycombio/rdslogs/...
+
+addons:
+    artifacts:
+        debug: true
+        paths:
+        - $GOPATH/bin
