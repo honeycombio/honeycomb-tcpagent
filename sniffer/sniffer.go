@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/codahale/metrics"
 	"github.com/emfree/gopacket"
 	"github.com/emfree/gopacket/afpacket"
 	"github.com/emfree/gopacket/layers"
@@ -119,6 +120,8 @@ func (sniffer *Sniffer) Run() error {
 	var payload gopacket.Payload
 	decoder := gopacket.NewDecodingLayerParser(linkLayerType, &sll, &eth, &ip4, &ip6, &tcp, &payload)
 	decodedLayers := make([]gopacket.LayerType, 0, 10)
+	parsedPackets := metrics.Counter("sniffer.parsed_packets")
+	unparseablePackets := metrics.Counter("sniffer.unparseable_packets")
 	ctr := 0
 
 loop:
@@ -167,11 +170,13 @@ loop:
 			case layers.LayerTypeTCP:
 				if foundNetLayer {
 					assembler.AssembleWithContext(netFlow, &tcp, &Context{CaptureInfo: ci})
+					parsedPackets.Add()
 					continue loop
 				}
 			}
 		}
 		logrus.WithFields(logrus.Fields{"decodedLayers": decodedLayers}).Debug("Couldn't decode packet, ignoring")
+		unparseablePackets.Add()
 	}
 	return nil
 }

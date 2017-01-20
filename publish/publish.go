@@ -3,6 +3,8 @@ package publish
 import (
 	"io"
 	"os"
+
+	"github.com/codahale/metrics"
 )
 
 type Publisher interface {
@@ -30,6 +32,9 @@ func (bp *BufferedPublisher) Run() {
 		m := <-bp.buf
 		io.WriteString(os.Stdout, string(m))
 		io.WriteString(os.Stdout, "\n")
+		// This'll be wrong if there are multiple BufferedPublishers running
+		// concurrently. But we don't do that so it doesn't matter.
+		metrics.Gauge("publish.buffer_depth").Set(int64(len(bp.buf)))
 	}
 }
 

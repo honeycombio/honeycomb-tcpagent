@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/codahale/metrics"
 	"github.com/honeycombio/honeypacket/publish"
 	"github.com/honeycombio/honeypacket/sniffer"
 )
@@ -161,7 +162,12 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 				q.CommandType = "query"
 			}
 
-			p.qcache.Add(header.RequestID, q)
+			eviction := p.qcache.Add(header.RequestID, q)
+			if eviction {
+				ctr := metrics.Counter("mongodb.qcache_evictions")
+				ctr.Add()
+				p.logger.Warn("Query cache full")
+			}
 		case OP_UPDATE:
 			m, err := readUpdateMsg(data)
 			if err != nil {
@@ -197,6 +203,7 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 		case OP_GET_MORE:
 			// TODO
 		}
+		metrics.Counter("mongodb.requests_parsed").Add()
 	}
 }
 
@@ -236,7 +243,9 @@ func (p *Parser) parseResponseStream(r io.Reader, ts time.Time) error {
 				p.publish(q)
 			}
 
+			// TODO: do sonething for others.
 		}
+		metrics.Counter("mongodb.responses_parsed").Add()
 
 	}
 }
@@ -249,8 +258,11 @@ func (p *Parser) publish(q *Event) {
 		p.logger.WithError(err).Error("Error marshaling query event")
 	}
 	ok := p.publisher.Publish(s)
-	if !ok {
+	if ok {
+		metrics.Counter("mongodb.events_published").Add()
+	} else {
 		p.logger.Debug("Failed to publish event")
+		metrics.Counter("mongodb.events_dropped").Add()
 	}
 }
 

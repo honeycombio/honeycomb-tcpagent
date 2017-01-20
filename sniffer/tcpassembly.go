@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/codahale/metrics"
 	"github.com/emfree/gopacket"
 	"github.com/emfree/gopacket/layers"
 	"github.com/emfree/gopacket/reassembly"
@@ -43,11 +44,12 @@ type Stream struct {
 
 // TODO: need to handle gaps!
 func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.AssemblerContext) {
-	dir, _, _, skip := sg.Info()
-	if skip > 0 {
+	dir, _, _, skipped := sg.Info()
+	if skipped > 0 {
 		logrus.WithFields(logrus.Fields{
-			"skipped": skip,
+			"skipped": skipped,
 			"flow":    s.getFlow(dir)}).Warn("Skipped bytes in stream")
+		metrics.Counter("sniffer.bytes_skipped").AddN(uint64(skipped))
 	}
 
 	length, _ := sg.Lengths()
@@ -68,6 +70,7 @@ func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.Assemb
 		s.messages <- s.current
 		s.current.bytes <- data
 	}
+	metrics.Counter("sniffer.reassembledsg_calls").Add()
 }
 
 // Implements Message
@@ -108,6 +111,7 @@ func (s *Stream) ReassemblyComplete(ac reassembly.AssemblerContext) bool {
 	if s.current != nil {
 		close(s.current.bytes)
 	}
+	metrics.Counter("streams.complete").Add()
 	return false
 }
 
@@ -155,6 +159,7 @@ func (f *streamFactory) New(net, transport gopacket.Flow, tcp *layers.TCP, ac re
 	s.consumer = f.cf.New(flow)
 	logrus.WithFields(logrus.Fields{"flow": flow}).Debug("Creating new stream")
 	go s.consumer.On(s)
+	metrics.Counter("streams.started").Add()
 	return s
 }
 

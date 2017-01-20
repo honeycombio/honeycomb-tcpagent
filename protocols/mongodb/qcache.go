@@ -2,6 +2,8 @@ package mongodb
 
 import lru "github.com/hashicorp/golang-lru"
 
+// QCache holds partially-assembled Event structs once we've parsed a request,
+// but need to wait until we see the response to fill in the missing data.
 type QCache struct {
 	cache *lru.Cache
 }
@@ -28,6 +30,6 @@ func (qc *QCache) Pop(k int32) (*Event, bool) {
 	return q, ok
 }
 
-func (qc *QCache) Add(k int32, v *Event) {
-	qc.cache.Add(k, v)
+func (qc *QCache) Add(k int32, v *Event) bool {
+	return qc.cache.Add(k, v)
 }

@@ -5,8 +5,10 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/codahale/metrics"
 	"github.com/honeycombio/honeypacket/protocols/mongodb"
 	"github.com/honeycombio/honeypacket/protocols/mysql"
 	"github.com/honeycombio/honeypacket/publish"
@@ -30,6 +32,7 @@ func main() {
 		os.Exit(1)
 	}
 	configureLogging(options.Debug)
+	go logMetrics()
 	err = run(options)
 	if err != nil {
 		os.Exit(1)
@@ -86,4 +89,15 @@ func parseFlags() (*GlobalOptions, error) {
 	}
 
 	return &options, nil
+}
+
+func logMetrics() {
+	ticker := time.NewTicker(time.Second * 3)
+	for range ticker.C {
+		counters, gauges := metrics.Snapshot()
+		logrus.WithFields(logrus.Fields{
+			"counters": counters,
+			"gauges":   gauges,
+		}).Info("Honeypacket statistics")
+	}
 }
