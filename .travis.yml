@@ -1,0 +1,19 @@
+os:
+  - linux
+
+language: go
+
+dist: trusty
+
+go:
+  - 1.7.4
+
+before_install:
+  - sudo apt-get -qq update
+  - sudo apt-get install -y libpcap0.8-dev
+
+script: go test github.com/honeycombio/honeypacket/...
+
+after_success:
+  - rm $GOPATH/bin/honeypacket
+  - go install -ldflags "-X main.BuildID=1.${TRAVIS_BUILD_NUMBER}" github.com/honeycombio/rdslogs/...
