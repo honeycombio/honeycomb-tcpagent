@@ -22,18 +22,20 @@ type Options struct {
 }
 
 type Event struct {
-	Timestamp   time.Time
-	ClientIP    string
-	ServerIP    string
-	Namespace   string
-	Database    string
-	Collection  string
-	CommandType string
-	Command     document
-	DurationMs  float64
-	RequestID   int32
-	NReturned   int32
-	NInserted   int
+	Timestamp      time.Time `json:"timestamp"`
+	ClientIP       string    `json:"client_ip"`
+	ServerIP       string    `json:"server_ip"`
+	Namespace      string    `json:"namespace"`
+	Database       string    `json:"database"`
+	Collection     string    `json:"collection"`
+	CommandType    string    `json:"command_type"`
+	Command        document  `json:"command"`
+	DurationMs     float64   `json:"duration_ms"`
+	RequestID      int32     `json:"request_id"`
+	NReturned      int32     `json:"nreturned"`
+	NInserted      int       `json:"ninserted"`
+	RequestLength  int       `json:"request_length"`
+	ResponseLength int       `json:"response_length"`
 }
 
 func truncate(d document) ([]byte, error) {
@@ -54,7 +56,7 @@ func (e *Event) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(&struct {
-		Command string
+		Command string `json:"command"`
 		*Wrapper
 	}{
 		Command: string(serializedCommand),

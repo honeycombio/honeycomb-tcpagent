@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -39,10 +40,26 @@ func TestParseFind(t *testing.T) {
 	ms.Append(response, ts, defaultFlow().Reverse())
 	parser.On(ms)
 	assert.Equal(t, 1, len(tp.output))
-	var ret map[string]interface{}
-	json.Unmarshal(tp.output[0], &ret)
-	assert.Equal(t, "find", ret["CommandType"])
-	assert.Equal(t, `{"filter":{"cuisine":"italian","rating":{"$gte":9}},"find":"collection0"}`, ret["Command"])
+	fmt.Println(string(tp.output[0]))
+	ok, err := checkJSONEquality(string(tp.output[0]),
+		`{
+			"command_type": "find",
+			"command": "{\"filter\":{\"cuisine\":\"italian\",\"rating\":{\"$gte\":9}},\"find\":\"collection0\"}",
+			"nreturned": 1,
+			"ninserted": 0,
+			"namespace": "db.$cmd",
+			"collection": "collection0",
+			"database": "db",
+			"request_length": 0,
+			"response_length": 0,
+			"duration_ms": 0,
+			"timestamp": "2006-01-02T15:04:05Z",
+			"server_ip": "10.0.0.23",
+			"client_ip": "10.0.0.22",
+			"request_id": 0
+		}`)
+	assert.Nil(t, err)
+	assert.True(t, ok)
 }
 
 func TestTruncateLongCommands(t *testing.T) {
@@ -68,7 +85,7 @@ func TestTruncateLongCommands(t *testing.T) {
 	assert.Equal(t, 1, len(tp.output))
 	var ret map[string]interface{}
 	json.Unmarshal(tp.output[0], &ret)
-	assert.Equal(t, "insert", ret["CommandType"])
+	assert.Equal(t, "insert", ret["command_type"])
 	assert.True(t, len(tp.output[0]) > 0)
 	assert.True(t, len(tp.output[0]) < 800)
 }
@@ -87,14 +104,14 @@ func TestParseOldInsert(t *testing.T) {
 	assert.Equal(t, len(tp.output), 1)
 	var ret map[string]interface{}
 	json.Unmarshal(tp.output[0], &ret)
-	assert.Equal(t, ret["CommandType"], "insert")
-	assert.Equal(t, ret["NInserted"], float64(1))
-	assert.Equal(t, ret["ClientIP"], "10.0.0.22")
-	assert.Equal(t, ret["ServerIP"], "10.0.0.23")
-	assert.Equal(t, ret["Collection"], "collection0")
-	assert.Equal(t, ret["Database"], "db")
-	assert.Equal(t, ret["Namespace"], "db.collection0")
-	assert.Equal(t, ret["Timestamp"], "2006-01-02T15:04:05Z")
+	assert.Equal(t, ret["command_type"], "insert")
+	assert.Equal(t, ret["ninserted"], float64(1))
+	assert.Equal(t, ret["client_ip"], "10.0.0.22")
+	assert.Equal(t, ret["server_ip"], "10.0.0.23")
+	assert.Equal(t, ret["collection"], "collection0")
+	assert.Equal(t, ret["database"], "db")
+	assert.Equal(t, ret["namespace"], "db.collection0")
+	assert.Equal(t, ret["timestamp"], "2006-01-02T15:04:05Z")
 }
 
 func genQuery(collectionName string, document interface{}) []byte {
@@ -243,4 +260,21 @@ func (tp *testPublisher) Publish(m []byte) bool {
 func newParser(publisher publish.Publisher) sniffer.Consumer {
 	pf := ParserFactory{Options: Options{Port: 27017}, Publisher: publisher}
 	return pf.New(defaultFlow())
+}
+
+func checkJSONEquality(s1, s2 string) (bool, error) {
+	var o1 interface{}
+	var o2 interface{}
+
+	var err error
+	err = json.Unmarshal([]byte(s1), &o1)
+	if err != nil {
+		return false, fmt.Errorf("Error mashalling string 1 :: %s", err.Error())
+	}
+	err = json.Unmarshal([]byte(s2), &o2)
+	if err != nil {
+		return false, fmt.Errorf("Error mashalling string 2 :: %s", err.Error())
+	}
+
+	return reflect.DeepEqual(o1, o2), nil
 }
