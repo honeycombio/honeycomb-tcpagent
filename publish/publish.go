@@ -32,6 +32,7 @@ func (bp *BufferedPublisher) Run() {
 		m := <-bp.buf
 		io.WriteString(os.Stdout, string(m))
 		io.WriteString(os.Stdout, "\n")
+		metrics.Counter("publish.events_published").Add()
 		// This'll be wrong if there are multiple BufferedPublishers running
 		// concurrently. But we don't do that so it doesn't matter.
 		metrics.Gauge("publish.buffer_depth").Set(int64(len(bp.buf)))

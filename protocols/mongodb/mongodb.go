@@ -108,13 +108,13 @@ func (p *Parser) On(ms sniffer.MessageStream) {
 		toServer := m.Flow().DstPort == p.options.Port
 		if toServer {
 			p.logger.Debug("Parsing MongoDB request")
-			err := p.parseRequestStream(m, m.Timestamp())
+			err := p.parseRequest(m, m.Timestamp())
 			if err != io.EOF {
 				p.logger.WithError(err).Debug("Error parsing request")
 			}
 		} else {
 			p.logger.Debug("Parsing MongoDB response")
-			err := p.parseResponseStream(m, m.Timestamp())
+			err := p.parseResponse(m, m.Timestamp())
 			if err != io.EOF {
 				p.logger.WithError(err).Debug("Error parsing response")
 			}
@@ -122,7 +122,7 @@ func (p *Parser) On(ms sniffer.MessageStream) {
 	}
 }
 
-func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
+func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 	for {
 		header, data, err := readRawMsg(r)
 		if err != nil {
@@ -137,6 +137,7 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 		q := &Event{}
 		q.RequestID = header.RequestID
 		q.Timestamp = ts
+		q.RequestLength = len(data) + 16 // Payload length including header
 
 		switch header.OpCode {
 		case OP_QUERY:
@@ -148,18 +149,30 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 			q.Timestamp = ts
 			q.Command = m.Query
 			q.Namespace = string(m.FullCollectionName)
+			// Some commands pass "database.$cmd" as the fullCollectionName
+			// with a document payload that looks like
+			// {
+			//   "find": "collectionName"
+			//   "filter": {...}
+			//   ...
+			// }
+			// For those, we take the collection name out of the payload, since
+			// that's more useful for consumers.
 			q.Database, q.Collection = parseFullCollectionName(string(m.FullCollectionName))
-			cmdType, ok := extractCommandType(m.Query)
+			cmdType, innerCollectionName, ok := extractCommandType(m.Query)
 			if ok {
 				q.CommandType = string(cmdType)
 				q.Command = m.Query
-				if cmdType != GetMore {
-					q.Collection = m.Query[string(cmdType)].(string)
+				if len(innerCollectionName) > 0 {
+					q.Collection = innerCollectionName
+				} else if cmdType == GetMore {
+					innerCollectionName, ok := m.Query["collection"].(string)
+					if ok {
+						q.Collection = innerCollectionName
+					}
 				}
 			} else {
-				q.Database, q.Collection = parseFullCollectionName(string(m.FullCollectionName))
-				// TODO: is this really right?
-				q.CommandType = "query"
+				q.CommandType = "command"
 			}
 
 			eviction := p.qcache.Add(header.RequestID, q)
@@ -197,17 +210,39 @@ func (p *Parser) parseRequestStream(r io.Reader, ts time.Time) error {
 			q.Namespace = string(m.FullCollectionName)
 			q.Database, q.Collection = parseFullCollectionName(string(m.FullCollectionName))
 			p.publish(q)
-		// TODO: others
 		case OP_DELETE:
-			// TODO
+			m, err := readDeleteMsg(data)
+			if err != nil {
+				p.logger.WithError(err).Debug("Error parsing delete")
+				return err
+			}
+			q.CommandType = "delete"
+			q.Timestamp = ts
+			q.Namespace = string(m.FullCollectionName)
+			q.Database, q.Collection = parseFullCollectionName(string(m.FullCollectionName))
+			p.publish(q)
 		case OP_GET_MORE:
-			// TODO
+			m, err := readGetMoreMsg(data)
+			if err != nil {
+				p.logger.WithError(err).Debug("Error parsing getMore")
+				return err
+			}
+			q.CommandType = "getMore"
+			q.Timestamp = ts
+			q.Namespace = string(m.FullCollectionName)
+			q.Database, q.Collection = parseFullCollectionName(string(m.FullCollectionName))
+			eviction := p.qcache.Add(header.RequestID, q)
+			if eviction {
+				ctr := metrics.Counter("mongodb.qcache_evictions")
+				ctr.Add()
+				p.logger.Warn("Query cache full")
+			}
 		}
 		metrics.Counter("mongodb.requests_parsed").Add()
 	}
 }
 
-func (p *Parser) parseResponseStream(r io.Reader, ts time.Time) error {
+func (p *Parser) parseResponse(r io.Reader, ts time.Time) error {
 	for {
 		header, data, err := readRawMsg(r)
 		if err != nil {
@@ -227,6 +262,7 @@ func (p *Parser) parseResponseStream(r io.Reader, ts time.Time) error {
 				return err
 			}
 			q, ok := p.qcache.Pop(header.ResponseTo)
+			q.ResponseLength = len(data) + 16 // Payload length including header
 			if !ok {
 				p.logger.WithField("responseTo", header.ResponseTo).
 					Debug("Query not found in cache")
@@ -243,7 +279,7 @@ func (p *Parser) parseResponseStream(r io.Reader, ts time.Time) error {
 				p.publish(q)
 			}
 
-			// TODO: do sonething for others.
+			// TODO: do something for others.
 		}
 		metrics.Counter("mongodb.responses_parsed").Add()
 
@@ -320,16 +356,24 @@ func newSafeBuffer(bufsize int) ([]byte, error) {
 	return make([]byte, bufsize), nil
 }
 
-func extractCommandType(m document) (cmdType opType, ok bool) {
-	// Order matters here, because "findAndModify" commands contain both
-	// "findAndModify" and "update" keys.
-	for _, cmdType = range []opType{FindAndModify, Insert, Update, Delete, GetMore, FindAndModify, Find, Count} {
-		_, ok := m[string(cmdType)]
+func extractCommandType(m document) (cmdType opType, collection string, ok bool) {
+	// Note order matters in this array -- findAndModify commands contain both
+	// a "findAndModify" and an "update" field.
+	for _, cmdType = range []opType{FindAndModify, Insert, Update, Delete, Find, Count, Distinct, Aggregate, MapReduce} {
+		c, ok := m[string(cmdType)]
 		if ok {
-			return cmdType, true
+			collection, _ := c.(string)
+			return cmdType, collection, true
 		}
 	}
-	return cmdType, false
+
+	for _, cmdType = range []opType{GetMore, GetLastError, GetPrevError, Eval} {
+		_, ok := m[string(cmdType)]
+		if ok {
+			return cmdType, "", true
+		}
+	}
+	return cmdType, "", false
 }
 
 func parseFullCollectionName(fullCollectionName string) (db string, collection string) {

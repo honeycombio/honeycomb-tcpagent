@@ -41,7 +41,7 @@ func TestParseFind(t *testing.T) {
 	parser.On(ms)
 	assert.Equal(t, 1, len(tp.output))
 	fmt.Println(string(tp.output[0]))
-	ok, err := checkJSONEquality(string(tp.output[0]),
+	err = assertJSONEquality(string(tp.output[0]),
 		`{
 			"command_type": "find",
 			"command": "{\"filter\":{\"cuisine\":\"italian\",\"rating\":{\"$gte\":9}},\"find\":\"collection0\"}",
@@ -56,10 +56,60 @@ func TestParseFind(t *testing.T) {
 			"timestamp": "2006-01-02T15:04:05Z",
 			"server_ip": "10.0.0.23",
 			"client_ip": "10.0.0.22",
-			"request_id": 0
+			"request_id": 0,
+			"request_length": 124,
+			"response_length": 41
 		}`)
+	if err != nil {
+		t.Error("Error checking JSON equality", err)
+	}
+}
+
+func TestParseGetMore(t *testing.T) {
+	tp := &testPublisher{}
+	parser := newParser(tp)
+
+	collectionName := "db.$cmd"
+	var getMore map[string]interface{}
+	err := json.Unmarshal([]byte(`{
+		"getMore": 0,
+		"collection": "restaurant",
+		"batchSize": 100,
+		"maxTimeMS": 1000
+	}`), &getMore)
 	assert.Nil(t, err)
-	assert.True(t, ok)
+
+	var reply map[string]interface{}
+	ts := time.Date(2006, 1, 2, 15, 4, 5, 0, time.UTC)
+	request := genQuery(collectionName, getMore)
+	response := genReply(reply)
+	ms := &messageStream{}
+	ms.Append(request, ts, defaultFlow())
+	ms.Append(response, ts, defaultFlow().Reverse())
+	parser.On(ms)
+	assert.Equal(t, 1, len(tp.output))
+	err = assertJSONEquality(string(tp.output[0]),
+		`{
+			"command_type": "getMore",
+			"command": "{\"batchSize\":100,\"collection\":\"restaurant\",\"getMore\":0,\"maxTimeMS\":1000}",
+			"nreturned": 1,
+			"ninserted": 0,
+			"namespace": "db.$cmd",
+			"collection": "restaurant",
+			"database": "db",
+			"request_length": 0,
+			"response_length": 0,
+			"duration_ms": 0,
+			"timestamp": "2006-01-02T15:04:05Z",
+			"server_ip": "10.0.0.23",
+			"client_ip": "10.0.0.22",
+			"request_id": 0,
+			"request_length": 123,
+			"response_length": 41
+		}`)
+	if err != nil {
+		t.Error("JSON equality check failed", err)
+	}
 }
 
 func TestTruncateLongCommands(t *testing.T) {
@@ -86,8 +136,7 @@ func TestTruncateLongCommands(t *testing.T) {
 	var ret map[string]interface{}
 	json.Unmarshal(tp.output[0], &ret)
 	assert.Equal(t, "insert", ret["command_type"])
-	assert.True(t, len(tp.output[0]) > 0)
-	assert.True(t, len(tp.output[0]) < 800)
+	assert.Equal(t, 500, len(ret["command"].(string)))
 }
 
 func TestParseOldInsert(t *testing.T) {
@@ -262,19 +311,21 @@ func newParser(publisher publish.Publisher) sniffer.Consumer {
 	return pf.New(defaultFlow())
 }
 
-func checkJSONEquality(s1, s2 string) (bool, error) {
+func assertJSONEquality(s1, s2 string) error {
 	var o1 interface{}
 	var o2 interface{}
 
 	var err error
 	err = json.Unmarshal([]byte(s1), &o1)
 	if err != nil {
-		return false, fmt.Errorf("Error mashalling string 1 :: %s", err.Error())
+		return fmt.Errorf("Error mashalling string 1 :: %s", err.Error())
 	}
 	err = json.Unmarshal([]byte(s2), &o2)
 	if err != nil {
-		return false, fmt.Errorf("Error mashalling string 2 :: %s", err.Error())
+		return fmt.Errorf("Error mashalling string 2 :: %s", err.Error())
 	}
-
-	return reflect.DeepEqual(o1, o2), nil
+	if !reflect.DeepEqual(o1, o2) {
+		return fmt.Errorf("JSON equality test failed\nExpected: %v\nGot:%v", s2, s1)
+	}
+	return nil
 }

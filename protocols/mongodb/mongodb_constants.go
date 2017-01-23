@@ -28,13 +28,23 @@ const (
 type opType string
 
 const (
-	Find          opType = "find"
-	Insert               = "insert"
-	Update               = "update"
-	Delete               = "delete"
-	GetMore              = "getMore"
-	FindAndModify        = "findAndModify"
-	Count                = "count"
+	Find                   opType = "find"
+	Insert                        = "insert"
+	Update                        = "update"
+	Delete                        = "delete"
+	FindAndModify                 = "findAndModify"
+	GetMore                       = "getMore"
+	GetLastError                  = "getLastError"
+	GetPrevError                  = "getPrevError"
+	ParallelCollectionScan        = "parallelCollectionScan"
+	Eval                          = "eval"
+	Count                         = "count"
+	Distinct                      = "distinct"
+	MapReduce                     = "mapReduce"
+	Aggregate                     = "aggregate"
+
+	// TODO: handle administrative commands as well?
+	// probably need isMaster and getNonce, ping, at minimum.
 )
 
 type document bson.M
