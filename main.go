@@ -92,7 +92,7 @@ func parseFlags() (*GlobalOptions, error) {
 }
 
 func logMetrics() {
-	ticker := time.NewTicker(time.Second * 3)
+	ticker := time.NewTicker(time.Second * 30)
 	for range ticker.C {
 		counters, gauges := metrics.Snapshot()
 		logrus.WithFields(logrus.Fields{
