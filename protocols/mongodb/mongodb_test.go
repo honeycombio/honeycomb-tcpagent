@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"testing/quick"
 	"time"
 
 	"github.com/honeycombio/honeycomb-tcpagent/publish"
@@ -163,6 +164,30 @@ func TestParseOldInsert(t *testing.T) {
 	assert.Equal(t, ret["timestamp"], "2006-01-02T15:04:05Z")
 }
 
+func TestRemainingBytesDiscardedOnError(t *testing.T) {
+	f := func(b []byte) bool {
+		tp := &testPublisher{}
+		parser := newParser(tp)
+		ms := &messageStream{}
+		m := message{
+			ts:   defaultDate(),
+			flow: defaultFlow(),
+			r:    bytes.NewReader(b),
+		}
+		ms.messages = append(ms.messages, &m)
+		parser.On(ms)
+		discardBuffer := make([]byte, 1)
+		n, err := m.Read(discardBuffer)
+		if err != io.EOF || n > 1 {
+			return false
+		}
+		return true
+	}
+	if err := quick.Check(f, nil); err != nil {
+		t.Error("Not all bytes read from input", err)
+	}
+}
+
 func genQuery(collectionName string, document interface{}) []byte {
 	cname := append([]byte(collectionName), '\x00')
 	serializedDoc, _ := bson.Marshal(document)
@@ -253,10 +278,9 @@ func genOldStyleInsert(collectionName string, documents ...interface{}) []byte {
 
 // Implements sniffer.Message
 type message struct {
-	flow  sniffer.IPPortTuple
-	ts    time.Time
-	r     io.Reader
-	bytes []byte
+	flow sniffer.IPPortTuple
+	ts   time.Time
+	r    io.Reader
 }
 
 func (m *message) Flow() sniffer.IPPortTuple { return m.flow }
@@ -266,7 +290,7 @@ func (m *message) Read(p []byte) (int, error) {
 }
 
 type messageStream struct {
-	messages []*message
+	messages []sniffer.Message
 	index    int
 }
 
@@ -295,6 +319,10 @@ func defaultFlow() sniffer.IPPortTuple {
 		SrcPort: 44444,
 		DstPort: 27017,
 	}
+}
+
+func defaultDate() time.Time {
+	return time.Date(2006, 1, 2, 15, 4, 5, 0, time.UTC)
 }
 
 type testPublisher struct {

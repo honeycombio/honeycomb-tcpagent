@@ -105,18 +105,19 @@ func (p *Parser) On(ms sniffer.MessageStream) {
 			p.logger.Debug("Message stream closed")
 			return
 		}
-		toServer := m.Flow().DstPort == p.options.Port
-		if toServer {
-			p.logger.Debug("Parsing MongoDB request")
-			err := p.parseRequest(m, m.Timestamp())
-			if err != io.EOF {
-				p.logger.WithError(err).Debug("Error parsing request")
-			}
+		isRequest := m.Flow().DstPort == p.options.Port
+		var err error
+		p.logger.WithField("isRequest", isRequest).Debug("Parsing MongoDB message")
+		if isRequest {
+			err = p.parseRequest(m, m.Timestamp())
 		} else {
-			p.logger.Debug("Parsing MongoDB response")
-			err := p.parseResponse(m, m.Timestamp())
-			if err != io.EOF {
-				p.logger.WithError(err).Debug("Error parsing response")
+			err = p.parseResponse(m, m.Timestamp())
+		}
+		if err != io.EOF {
+			p.logger.WithError(err).WithField("isRequest", isRequest).Debug("Error parsing request")
+			discardBuffer := make([]byte, 4096)
+			for err != io.EOF {
+				_, err = m.Read(discardBuffer)
 			}
 		}
 	}
