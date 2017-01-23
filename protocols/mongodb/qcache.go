@@ -8,7 +8,6 @@ type QCache struct {
 	cache *lru.Cache
 }
 
-// TODO: should log on eviction
 func newQCache(size int) *QCache {
 	// Not checking errors here, because lru.New() returns an error only if
 	// size is negative. We just won't do that in calling code.

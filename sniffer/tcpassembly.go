@@ -40,9 +40,9 @@ type Stream struct {
 	messages chan *message
 	started  bool
 	flow     IPPortTuple
+	sync.Mutex
 }
 
-// TODO: need to handle gaps!
 func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.AssemblerContext) {
 	dir, _, _, skipped := sg.Info()
 	if skipped > 0 {
@@ -62,11 +62,13 @@ func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.Assemb
 		}
 		s.started = true
 		s.currDir = dir
+		s.Lock()
 		s.current = &message{
 			flow:      s.getFlow(dir),
 			timestamp: ac.GetCaptureInfo().Timestamp,
 			bytes:     make(chan []byte, 32),
 		}
+		s.Unlock()
 		s.messages <- s.current
 		s.current.bytes <- data
 	}
@@ -108,9 +110,11 @@ func (s *Stream) ReassemblyComplete(ac reassembly.AssemblerContext) bool {
 	logrus.WithField("flow", s.flow).Debug("Closing stream")
 	close(s.messages)
 	// TODO: make sure this can't ever race
+	s.Lock()
 	if s.current != nil {
 		close(s.current.bytes)
 	}
+	s.Unlock()
 	metrics.Counter("streams.complete").Add()
 	return false
 }
