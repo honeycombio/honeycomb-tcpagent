@@ -9,8 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/mgo.v2/bson"
+
 	"github.com/Sirupsen/logrus"
 	"github.com/codahale/metrics"
+	"github.com/honeycombio/honeycomb-tcpagent/protocols/mongodb/queryshape"
 	"github.com/honeycombio/honeycomb-tcpagent/publish"
 	"github.com/honeycombio/honeycomb-tcpagent/sniffer"
 )
@@ -23,20 +26,21 @@ type Options struct {
 }
 
 type Event struct {
-	Timestamp      time.Time `json:"timestamp"`
-	ClientIP       string    `json:"client_ip"`
-	ServerIP       string    `json:"server_ip"`
-	Namespace      string    `json:"namespace"`
-	Database       string    `json:"database"`
-	Collection     string    `json:"collection"`
-	CommandType    string    `json:"command_type"`
-	Command        document  `json:"command"`
-	DurationMs     float64   `json:"duration_ms"`
-	RequestID      int32     `json:"request_id"`
-	NReturned      int32     `json:"nreturned"`
-	NInserted      int       `json:"ninserted"`
-	RequestLength  int       `json:"request_length"`
-	ResponseLength int       `json:"response_length"`
+	ClientIP        string    `json:"client_ip"`
+	Collection      string    `json:"collection"`
+	CommandType     string    `json:"command_type"`
+	Command         document  `json:"command"`
+	Database        string    `json:"database"`
+	DurationMs      float64   `json:"duration_ms"`
+	Namespace       string    `json:"namespace"`
+	NInserted       int       `json:"ninserted"`
+	NormalizedQuery string    `json:"normalized_query,omitempty"`
+	NReturned       int32     `json:"nreturned"`
+	RequestID       int32     `json:"request_id"`
+	RequestLength   int       `json:"request_length"`
+	ResponseLength  int       `json:"response_length"`
+	ServerIP        string    `json:"server_ip"`
+	Timestamp       time.Time `json:"timestamp"`
 }
 
 func truncate(d document) ([]byte, error) {
@@ -147,7 +151,6 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 				p.logger.WithError(err).Debug("Error parsing query")
 				return err
 			}
-			q.Timestamp = ts
 			q.Command = m.Query
 			q.Namespace = string(m.FullCollectionName)
 			// Some commands pass "database.$cmd" as the fullCollectionName
@@ -170,6 +173,13 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 					innerCollectionName, ok := m.Query["collection"].(string)
 					if ok {
 						q.Collection = innerCollectionName
+					}
+				}
+				if cmdType == Find {
+					if rawFilter, ok := m.Query["filter"]; ok {
+						if filter, ok := rawFilter.(bson.M); ok {
+							q.NormalizedQuery = queryshape.GetQueryShape(filter)
+						}
 					}
 				}
 			} else {
@@ -206,7 +216,6 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 				return err
 			}
 			q.CommandType = "insert"
-			q.Timestamp = ts
 			q.NInserted = m.NInserted
 			q.Namespace = string(m.FullCollectionName)
 			q.Database, q.Collection = parseFullCollectionName(string(m.FullCollectionName))
@@ -218,7 +227,6 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 				return err
 			}
 			q.CommandType = "delete"
-			q.Timestamp = ts
 			q.Namespace = string(m.FullCollectionName)
 			q.Database, q.Collection = parseFullCollectionName(string(m.FullCollectionName))
 			p.publish(q)
@@ -229,7 +237,6 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 				return err
 			}
 			q.CommandType = "getMore"
-			q.Timestamp = ts
 			q.Namespace = string(m.FullCollectionName)
 			q.Database, q.Collection = parseFullCollectionName(string(m.FullCollectionName))
 			eviction := p.qcache.Add(header.RequestID, q)

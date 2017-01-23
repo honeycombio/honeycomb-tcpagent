@@ -41,11 +41,11 @@ func TestParseFind(t *testing.T) {
 	ms.Append(response, ts, defaultFlow().Reverse())
 	parser.On(ms)
 	assert.Equal(t, 1, len(tp.output))
-	fmt.Println(string(tp.output[0]))
 	err = assertJSONEquality(string(tp.output[0]),
 		`{
 			"command_type": "find",
 			"command": "{\"filter\":{\"cuisine\":\"italian\",\"rating\":{\"$gte\":9}},\"find\":\"collection0\"}",
+			"normalized_query": "{\"cuisine\":1,\"rating\":{\"$gte\":1}}",
 			"nreturned": 1,
 			"ninserted": 0,
 			"namespace": "db.$cmd",
