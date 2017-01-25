@@ -30,7 +30,7 @@ func GetQueryShape(q bson.M) string {
 	}
 	pruned := make(bson.M)
 	for k, v := range q {
-		if k[0] == '$' {
+		if k[0] == '$' || k == "filter" || k == "query" || k == "documents" {
 			pruned[k] = flattenOp(v)
 		} else {
 			pruned[k] = flatten(v)

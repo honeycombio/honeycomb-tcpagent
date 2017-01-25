@@ -22,6 +22,8 @@ type ConsumerFactory interface {
 	BPFFilter() string
 }
 
+// A Message represents a concatenated sequence of one or more consecutive TCP
+// segments in one direction.
 type Message interface {
 	Timestamp() time.Time
 	Flow() IPPortTuple
@@ -109,7 +111,6 @@ func (m *message) Read(p []byte) (int, error) {
 func (s *Stream) ReassemblyComplete(ac reassembly.AssemblerContext) bool {
 	logrus.WithField("flow", s.flow).Debug("Closing stream")
 	close(s.messages)
-	// TODO: make sure this can't ever race
 	s.Lock()
 	if s.current != nil {
 		close(s.current.bytes)
@@ -121,7 +122,11 @@ func (s *Stream) ReassemblyComplete(ac reassembly.AssemblerContext) bool {
 
 func (s *Stream) Accept(tcp *layers.TCP, ci gopacket.CaptureInfo, dir reassembly.TCPFlowDirection,
 	ackSeq reassembly.Sequence, start *bool, ac reassembly.AssemblerContext) bool {
-	// TODO?
+	// TODO: Consider setting *start=true here to accept streams even if we
+	// haven't seen a SYN -- this lets us record existing connections when we
+	// start listening. But we need to be really robust against parsing
+	// malformed application data if so, because the first TCP packet we get
+	// might be midway through an application message.
 	return true
 }
 

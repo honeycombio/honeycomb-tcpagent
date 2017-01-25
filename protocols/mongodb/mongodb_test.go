@@ -20,125 +20,140 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
-func TestParseFind(t *testing.T) {
-	tp := &testPublisher{}
-	parser := newParser(tp)
-
-	collectionName := "db.$cmd"
-	var find map[string]interface{}
-	err := json.Unmarshal([]byte(`{
-		"find":   "collection0",
-		"filter": {"rating": {"$gte": 9}, "cuisine": "italian"}
-	}`), &find)
-	assert.Nil(t, err)
-
-	var reply map[string]interface{}
+func TestParseQueries(t *testing.T) {
 	ts := time.Date(2006, 1, 2, 15, 4, 5, 0, time.UTC)
-	request := genQuery(collectionName, find)
-	response := genReply(reply)
-	ms := &messageStream{}
-	ms.Append(request, ts, defaultFlow())
-	ms.Append(response, ts, defaultFlow().Reverse())
-	parser.On(ms)
-	assert.Equal(t, 1, len(tp.output))
-	err = assertJSONEquality(string(tp.output[0]),
-		`{
-			"command_type": "find",
-			"command": "{\"filter\":{\"cuisine\":\"italian\",\"rating\":{\"$gte\":9}},\"find\":\"collection0\"}",
-			"normalized_query": "{\"cuisine\":1,\"rating\":{\"$gte\":1}}",
-			"nreturned": 1,
-			"ninserted": 0,
-			"namespace": "db.$cmd",
-			"collection": "collection0",
-			"database": "db",
-			"request_length": 0,
-			"response_length": 0,
-			"duration_ms": 0,
-			"timestamp": "2006-01-02T15:04:05Z",
-			"server_ip": "10.0.0.23",
-			"client_ip": "10.0.0.22",
-			"request_id": 0,
-			"request_length": 124,
-			"response_length": 41
-		}`)
-	if err != nil {
-		t.Error("Error checking JSON equality", err)
+	collectionName := "db.$cmd"
+	var queryTests = []struct {
+		query     string
+		replyDocs []string
+		output    string
+	}{
+		{ // Basic insert query
+			`{
+				"find":   "collection0",
+				"filter": {"rating": {"$gte": 9}, "cuisine": "italian"}
+			}`,
+			[]string{`{ }`},
+			`{
+				"command_type": "find",
+				"command": "{\"filter\":{\"cuisine\":\"italian\",\"rating\":{\"$gte\":9}},\"find\":\"collection0\"}",
+				"normalized_query": "{\"filter\":{\"cuisine\":1,\"rating\":{\"$gte\":1}},\"find\":1}",
+				"nreturned": 1,
+				"ninserted": 0,
+				"namespace": "db.$cmd",
+				"collection": "collection0",
+				"database": "db",
+				"request_length": 0,
+				"response_length": 0,
+				"duration_ms": 0,
+				"timestamp": "2006-01-02T15:04:05Z",
+				"server_ip": "10.0.0.23",
+				"client_ip": "10.0.0.22",
+				"request_id": 0,
+				"request_length": 124,
+				"response_length": 41
+			}`,
+		},
+		{ // Basic getMore query
+			`{
+				"getMore": 0,
+				"collection": "restaurant",
+				"batchSize": 100,
+				"maxTimeMS": 1000
+			}`,
+			[]string{`{}`},
+			`{
+				"command_type": "getMore",
+				"command": "{\"batchSize\":100,\"collection\":\"restaurant\",\"getMore\":0,\"maxTimeMS\":1000}",
+				"nreturned": 1,
+				"ninserted": 0,
+				"namespace": "db.$cmd",
+				"normalized_query": "{\"batchSize\":1,\"collection\":1,\"getMore\":1,\"maxTimeMS\":1}",
+				"collection": "restaurant",
+				"database": "db",
+				"request_length": 0,
+				"response_length": 0,
+				"duration_ms": 0,
+				"timestamp": "2006-01-02T15:04:05Z",
+				"server_ip": "10.0.0.23",
+				"client_ip": "10.0.0.22",
+				"request_id": 0,
+				"request_length": 123,
+				"response_length": 41
+			}`,
+		},
+		{ // Long insert
+			fmt.Sprintf(`{
+				"insert":   "collection0",
+				"documents": [{"key": "%s"}]
+			}`, strings.Repeat("x", 2048)),
+			[]string{`{"ok": 1, "n": 1}`},
+			`{
+				"command":"{\"documents\":[{\"key\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ...",
+				"client_ip":"10.0.0.22",
+				"collection":"collection0",
+				"command_type":"insert",
+				"database":"db",
+				"duration_ms":0,
+				"namespace":"db.$cmd",
+				"normalized_query": "{\"documents\":[{\"key\":1}],\"insert\":1}",
+				"ninserted":1,
+				"nreturned":1,
+				"request_id":0,
+				"request_length":2147,
+				"response_length":64,
+				"server_ip":"10.0.0.23",
+				"timestamp":"2006-01-02T15:04:05Z"
+			}`,
+		},
 	}
-}
+	for _, testcase := range queryTests {
+		tp := &testPublisher{}
+		parser := newParser(tp)
+		query, err := genQuery(collectionName, testcase.query)
+		assert.Nil(t, err)
+		reply, err := genReply(testcase.replyDocs)
+		assert.Nil(t, err)
+		ms := &messageStream{}
+		ms.Append(query, ts, defaultFlow())
+		ms.Append(reply, ts, defaultFlow().Reverse())
+		parser.On(ms)
+		assert.Equal(t, 1, len(tp.output))
+		err = assertJSONEquality(string(tp.output[0]), testcase.output)
+		if err != nil {
+			t.Error("JSON equality check failed", err)
+		}
 
-func TestParseGetMore(t *testing.T) {
-	tp := &testPublisher{}
-	parser := newParser(tp)
-
-	collectionName := "db.$cmd"
-	var getMore map[string]interface{}
-	err := json.Unmarshal([]byte(`{
-		"getMore": 0,
-		"collection": "restaurant",
-		"batchSize": 100,
-		"maxTimeMS": 1000
-	}`), &getMore)
-	assert.Nil(t, err)
-
-	var reply map[string]interface{}
-	ts := time.Date(2006, 1, 2, 15, 4, 5, 0, time.UTC)
-	request := genQuery(collectionName, getMore)
-	response := genReply(reply)
-	ms := &messageStream{}
-	ms.Append(request, ts, defaultFlow())
-	ms.Append(response, ts, defaultFlow().Reverse())
-	parser.On(ms)
-	assert.Equal(t, 1, len(tp.output))
-	err = assertJSONEquality(string(tp.output[0]),
-		`{
-			"command_type": "getMore",
-			"command": "{\"batchSize\":100,\"collection\":\"restaurant\",\"getMore\":0,\"maxTimeMS\":1000}",
-			"nreturned": 1,
-			"ninserted": 0,
-			"namespace": "db.$cmd",
-			"collection": "restaurant",
-			"database": "db",
-			"request_length": 0,
-			"response_length": 0,
-			"duration_ms": 0,
-			"timestamp": "2006-01-02T15:04:05Z",
-			"server_ip": "10.0.0.23",
-			"client_ip": "10.0.0.22",
-			"request_id": 0,
-			"request_length": 123,
-			"response_length": 41
-		}`)
-	if err != nil {
-		t.Error("JSON equality check failed", err)
 	}
+
 }
 
-func TestTruncateLongCommands(t *testing.T) {
-	tp := &testPublisher{}
-	parser := newParser(tp)
-
-	collectionName := "db.$cmd"
-	var find map[string]interface{}
-	err := json.Unmarshal([]byte(fmt.Sprintf(`{
-		"insert":   "collection0",
-		"documents": [{"key": "%s"}]
-	}`, strings.Repeat("x", 2048))), &find)
-	assert.Nil(t, err)
-
-	var reply map[string]interface{}
-	ts := time.Date(2006, 1, 2, 15, 4, 5, 0, time.UTC)
-	request := genQuery(collectionName, find)
-	response := genReply(reply)
-	ms := &messageStream{}
-	ms.Append(request, ts, defaultFlow())
-	ms.Append(response, ts, defaultFlow().Reverse())
-	parser.On(ms)
-	assert.Equal(t, 1, len(tp.output))
-	var ret map[string]interface{}
-	json.Unmarshal(tp.output[0], &ret)
-	assert.Equal(t, "insert", ret["command_type"])
-	assert.Equal(t, 500, len(ret["command"].(string)))
-}
+//func TestTruncateLongCommands(t *testing.T) {
+//	tp := &testPublisher{}
+//	parser := newParser(tp)
+//
+//	collectionName := "db.$cmd"
+//	var find map[string]interface{}
+//	err := json.Unmarshal([]byte(fmt.Sprintf(`{
+//		"insert":   "collection0",
+//		"documents": [{"key": "%s"}]
+//	}`, strings.Repeat("x", 2048))), &find)
+//	assert.Nil(t, err)
+//
+//	var reply map[string]interface{}
+//	ts := time.Date(2006, 1, 2, 15, 4, 5, 0, time.UTC)
+//	request := genQuery(collectionName, find)
+//	response := genReply(reply)
+//	ms := &messageStream{}
+//	ms.Append(request, ts, defaultFlow())
+//	ms.Append(response, ts, defaultFlow().Reverse())
+//	parser.On(ms)
+//	assert.Equal(t, 1, len(tp.output))
+//	var ret map[string]interface{}
+//	json.Unmarshal(tp.output[0], &ret)
+//	assert.Equal(t, "insert", ret["command_type"])
+//	assert.Equal(t, 500, len(ret["command"].(string)))
+//}
 
 func TestParseOldInsert(t *testing.T) {
 	tp := &testPublisher{}
@@ -188,7 +203,12 @@ func TestRemainingBytesDiscardedOnError(t *testing.T) {
 	}
 }
 
-func genQuery(collectionName string, document interface{}) []byte {
+func genQuery(collectionName string, query string) ([]byte, error) {
+	var document map[string]interface{}
+	err := json.Unmarshal([]byte(query), &document)
+	if err != nil {
+		return nil, err
+	}
 	cname := append([]byte(collectionName), '\x00')
 	serializedDoc, _ := bson.Marshal(document)
 	length := uint32(16 + 4 + len(cname) + 8 + len(serializedDoc))
@@ -211,12 +231,17 @@ func genQuery(collectionName string, document interface{}) []byte {
 	b.Write([]byte{0, 0, 0, 0}) // numberToSkip
 	b.Write([]byte{0, 0, 0, 0}) // numberToReturn
 	b.Write(serializedDoc)
-	return b.Bytes()
+	return b.Bytes(), nil
 }
 
-func genReply(documents ...interface{}) []byte {
-	serializedDocs := make([]byte, 0)
-	for _, doc := range documents {
+func genReply(documents []string) ([]byte, error) {
+	var serializedDocs []byte
+	for _, rawDoc := range documents {
+		var doc map[string]interface{}
+		err := json.Unmarshal([]byte(rawDoc), &doc)
+		if err != nil {
+			return nil, err
+		}
 		s, _ := bson.Marshal(doc)
 		serializedDocs = append(serializedDocs, s...)
 	}
@@ -243,7 +268,7 @@ func genReply(documents ...interface{}) []byte {
 	b := bytes.NewBuffer(make([]byte, 0))
 	binary.Write(b, binary.LittleEndian, prologue)
 	b.Write(serializedDocs)
-	return b.Bytes()
+	return b.Bytes(), nil
 }
 
 func genOldStyleInsert(collectionName string, documents ...interface{}) []byte {

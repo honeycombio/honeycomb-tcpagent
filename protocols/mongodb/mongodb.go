@@ -18,9 +18,6 @@ import (
 	"github.com/honeycombio/honeycomb-tcpagent/sniffer"
 )
 
-// Truncate serialized documents longer than this before publishing them
-const maxDocLength = 500
-
 type Options struct {
 	Port uint16 `long:"port" description:"MongoDB port" default:"27017"`
 }
@@ -28,7 +25,7 @@ type Options struct {
 type Event struct {
 	ClientIP        string    `json:"client_ip"`
 	Collection      string    `json:"collection"`
-	CommandType     string    `json:"command_type"`
+	CommandType     opType    `json:"command_type"`
 	Command         document  `json:"command"`
 	Database        string    `json:"database"`
 	DurationMs      float64   `json:"duration_ms"`
@@ -165,7 +162,7 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 			q.Database, q.Collection = parseFullCollectionName(string(m.FullCollectionName))
 			cmdType, innerCollectionName, ok := extractCommandType(m.Query)
 			if ok {
-				q.CommandType = string(cmdType)
+				q.CommandType = cmdType
 				q.Command = m.Query
 				if len(innerCollectionName) > 0 {
 					q.Collection = innerCollectionName
@@ -175,13 +172,7 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 						q.Collection = innerCollectionName
 					}
 				}
-				if cmdType == Find {
-					if rawFilter, ok := m.Query["filter"]; ok {
-						if filter, ok := rawFilter.(bson.M); ok {
-							q.NormalizedQuery = queryshape.GetQueryShape(filter)
-						}
-					}
-				}
+				q.NormalizedQuery = queryshape.GetQueryShape(bson.M(q.Command))
 			} else {
 				q.CommandType = "command"
 			}
@@ -263,8 +254,6 @@ func (p *Parser) parseResponse(r io.Reader, ts time.Time) error {
 			"messageLength": header.MessageLength}).Debug("Parsed response header")
 		switch header.OpCode {
 		case OP_REPLY:
-			// TODO: For inserts and the like, we actually need to read the
-			// response payload.
 			m, err := readReplyMsg(data)
 			if err != nil {
 				return err
@@ -284,10 +273,24 @@ func (p *Parser) parseResponse(r io.Reader, ts time.Time) error {
 				} else {
 					q.DurationMs = float64(ts.Sub(q.Timestamp).Nanoseconds()) / 1e6
 				}
+
+				if q.CommandType == Insert {
+					if len(m.Documents) > 0 {
+						q.NInserted, _ = getIntegerValue(m.Documents[0], "n")
+					}
+				} else if q.CommandType == Find {
+					if len(m.Documents) > 0 {
+						if cursor, ok := getDocValue(m.Documents[0], "cursor"); ok {
+							if firstBatch, ok := getArrayValue(document(cursor), "firstBatch"); ok {
+								q.NReturned = int32(len(firstBatch))
+							}
+						}
+					}
+				}
 				p.publish(q)
 			}
 
-			// TODO: do something for others.
+			// TODO: do something for OP_COMMAND_REPLY
 		}
 		metrics.Counter("mongodb.responses_parsed").Add()
 

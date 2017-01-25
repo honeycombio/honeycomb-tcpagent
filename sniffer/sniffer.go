@@ -74,7 +74,7 @@ func New(options Options, cf ConsumerFactory) (*Sniffer, error) {
 	}
 	var err error
 	if options.SourceType == PCap {
-		s.packetSource, err = newPcapHandle(options.Device, options.SnapLen, pcap.BlockForever) // TODO: make timeout configurable again? Or just don't bother
+		s.packetSource, err = newPcapHandle(options.Device, options.SnapLen, pcap.BlockForever)
 		if err != nil {
 			return nil, err
 		}

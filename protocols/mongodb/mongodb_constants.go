@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/Sirupsen/logrus"
+
 	"gopkg.in/mgo.v2/bson"
 )
 
@@ -47,8 +49,16 @@ const (
 	// probably need isMaster and getNonce, ping, at minimum.
 )
 
+// Types used in the MongoDB wire protocol
 type document bson.M
 type cstring []byte
+
+// Safety constraints:
+// Truncate serialized documents longer than this before publishing them
+const maxDocLength = 500
+
+// Don't allocate document arrays longer than this
+const maxDocArrayLength = 1024
 
 type updateMsg struct {
 	ZERO               int32    // 0 - reserved for future use
@@ -167,11 +177,11 @@ type killCursorsMsg struct {
 }
 
 type replyMsg struct {
-	ResponseFlags  int32 // bit vector
-	CursorID       int64 // cursor id if client needs to do get more's
-	StartingFrom   int32 // where in the cursor this reply is starting
-	NumberReturned int32 // number of documents in the reply
-	//Documents      []document // documents
+	ResponseFlags  int32      // bit vector
+	CursorID       int64      // cursor id if client needs to do get more's
+	StartingFrom   int32      // where in the cursor this reply is starting
+	NumberReturned int32      // number of documents in the reply
+	Documents      []document // documents
 }
 
 func readReplyMsg(data []byte) (*replyMsg, error) {
@@ -181,6 +191,17 @@ func readReplyMsg(data []byte) (*replyMsg, error) {
 	m.CursorID = r.Int64()
 	m.StartingFrom = r.Int32()
 	m.NumberReturned = r.Int32()
+
+	numberToRead := m.NumberReturned
+	if numberToRead > maxDocArrayLength {
+		logrus.WithField("NumerReturned", m.NumberReturned).
+			Info("large NumberReturned value, not reading all documents")
+		numberToRead = maxDocArrayLength
+	}
+	m.Documents = make([]document, numberToRead)
+	for i := 0; i < int(numberToRead); i++ {
+		m.Documents[i] = r.Document()
+	}
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -293,4 +314,38 @@ func (e *errReader) Int64() int64 {
 	var v int64
 	e.err = binary.Read(e.b, binary.LittleEndian, &v)
 	return v
+}
+
+// getSubDoc returns doc[k] as a bson.M type if possible and (nil, false)
+// otherwise.
+func getDocValue(doc document, k string) (bson.M, bool) {
+	v, ok := doc[k]
+	if !ok {
+		return nil, false
+	}
+	ret, ok := v.(bson.M)
+	return ret, ok
+}
+
+// getIntegerValue returns doc[k] as an int if possible and (0, false)
+// otherwise.
+func getIntegerValue(doc document, k string) (int, bool) {
+	v, ok := doc[k]
+	if !ok {
+		return 0, false
+	}
+	ret, ok := v.(float64)
+	return int(ret), ok
+}
+
+// getArrayValue returns doc[k] as an []interface{} type if possible and (nil,
+// false) otherwise.
+func getArrayValue(doc document, k string) ([]interface{}, bool) {
+	v, ok := doc[k]
+	if !ok {
+		return nil, false
+	}
+	ret, ok := v.([]interface{})
+	return ret, ok
+
 }
