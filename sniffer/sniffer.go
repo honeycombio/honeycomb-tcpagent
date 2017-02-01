@@ -74,7 +74,8 @@ func New(options Options, cf ConsumerFactory) (*Sniffer, error) {
 	}
 	var err error
 	if options.SourceType == PCap {
-		s.packetSource, err = newPcapHandle(options.Device, options.SnapLen, pcap.BlockForever)
+		bufSizeBytes := options.BufSizeMb * 1024 * 1024
+		s.packetSource, err = newPcapHandle(options.Device, options.SnapLen, pcap.BlockForever, bufSizeBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -181,11 +182,20 @@ loop:
 	return nil
 }
 
-func newPcapHandle(iface string, snaplen int, pollTimeout time.Duration) (*pcapSource, error) {
+func newPcapHandle(iface string, snaplen int, pollTimeout time.Duration, bufSize int) (*pcapSource, error) {
 	if iface == "" {
 		iface = "any"
 	}
-	h, err := pcap.OpenLive(iface, int32(snaplen), true, pollTimeout)
+	p, err := pcap.NewInactiveHandle(iface)
+	if err != nil {
+		return nil, err
+	}
+	p.SetTimeout(pollTimeout)
+	p.SetSnapLen(snaplen)
+	p.SetPromisc(true)
+	p.SetBufferSize(bufSize)
+	h, err := p.Activate()
+	return &pcapSource{h}, err
 	return &pcapSource{h}, err
 }
 
