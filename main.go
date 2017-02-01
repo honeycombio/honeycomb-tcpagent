@@ -98,6 +98,6 @@ func logMetrics() {
 		logrus.WithFields(logrus.Fields{
 			"counters": counters,
 			"gauges":   gauges,
-		}).Info("Honeypacket statistics")
+		}).Info("honeycomb-tcpagent statistics")
 	}
 }
