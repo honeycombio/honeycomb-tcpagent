@@ -20,20 +20,30 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
+type request struct {
+	requestID uint32
+	query     string
+}
+
+type response struct {
+	responseTo uint32
+	replyDocs  []string
+}
+
 func TestParseQueries(t *testing.T) {
 	ts := time.Date(2006, 1, 2, 15, 4, 5, 0, time.UTC)
 	collectionName := "db.$cmd"
 	var queryTests = []struct {
-		query     string
-		replyDocs []string
-		output    string
+		request  request
+		response response
+		output   string
 	}{
 		{ // Basic insert query
-			`{
+			request{0, `{
 				"find":   "collection0",
 				"filter": {"rating": {"$gte": 9}, "cuisine": "italian"}
-			}`,
-			[]string{`{ }`},
+			}`},
+			response{0, []string{`{ }`}},
 			`{
 				"command_type": "find",
 				"command": "{\"filter\":{\"cuisine\":\"italian\",\"rating\":{\"$gte\":9}},\"find\":\"collection0\"}",
@@ -55,13 +65,13 @@ func TestParseQueries(t *testing.T) {
 			}`,
 		},
 		{ // Basic getMore query
-			`{
+			request{0, `{
 				"getMore": 0,
 				"collection": "restaurant",
 				"batchSize": 100,
 				"maxTimeMS": 1000
-			}`,
-			[]string{`{}`},
+			}`},
+			response{0, []string{`{}`}},
 			`{
 				"command_type": "getMore",
 				"command": "{\"batchSize\":100,\"collection\":\"restaurant\",\"getMore\":0,\"maxTimeMS\":1000}",
@@ -83,11 +93,11 @@ func TestParseQueries(t *testing.T) {
 			}`,
 		},
 		{ // Long insert
-			fmt.Sprintf(`{
+			request{0, fmt.Sprintf(`{
 				"insert":   "collection0",
 				"documents": [{"key": "%s"}]
-			}`, strings.Repeat("x", 2048)),
-			[]string{`{"ok": 1, "n": 1}`},
+			}`, strings.Repeat("x", 2048))},
+			response{0, []string{`{"ok": 1, "n": 1}`}},
 			`{
 				"command":"{\"documents\":[{\"key\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ...",
 				"client_ip":"10.0.0.22",
@@ -106,54 +116,34 @@ func TestParseQueries(t *testing.T) {
 				"timestamp":"2006-01-02T15:04:05Z"
 			}`,
 		},
+		{ // Response without matching request
+			request{0, `{}`},
+			response{1, []string{`{}`}},
+			``,
+		},
 	}
 	for _, testcase := range queryTests {
 		tp := &testPublisher{}
 		parser := newParser(tp)
-		query, err := genQuery(collectionName, testcase.query)
+		query, err := genQuery(collectionName, testcase.request)
 		assert.Nil(t, err)
-		reply, err := genReply(testcase.replyDocs)
+		reply, err := genReply(testcase.response)
 		assert.Nil(t, err)
 		ms := &messageStream{}
 		ms.Append(query, ts, defaultFlow())
 		ms.Append(reply, ts, defaultFlow().Reverse())
 		parser.On(ms)
-		assert.Equal(t, 1, len(tp.output))
-		err = assertJSONEquality(string(tp.output[0]), testcase.output)
-		if err != nil {
-			t.Error("JSON equality check failed", err)
+		if len(testcase.output) > 0 {
+			assert.Equal(t, 1, len(tp.output))
+			err = assertJSONEquality(string(tp.output[0]), testcase.output)
+			if err != nil {
+				t.Error("JSON equality check failed", err)
+			}
+		} else {
+			assert.Equal(t, 0, len(tp.output))
 		}
-
 	}
-
 }
-
-//func TestTruncateLongCommands(t *testing.T) {
-//	tp := &testPublisher{}
-//	parser := newParser(tp)
-//
-//	collectionName := "db.$cmd"
-//	var find map[string]interface{}
-//	err := json.Unmarshal([]byte(fmt.Sprintf(`{
-//		"insert":   "collection0",
-//		"documents": [{"key": "%s"}]
-//	}`, strings.Repeat("x", 2048))), &find)
-//	assert.Nil(t, err)
-//
-//	var reply map[string]interface{}
-//	ts := time.Date(2006, 1, 2, 15, 4, 5, 0, time.UTC)
-//	request := genQuery(collectionName, find)
-//	response := genReply(reply)
-//	ms := &messageStream{}
-//	ms.Append(request, ts, defaultFlow())
-//	ms.Append(response, ts, defaultFlow().Reverse())
-//	parser.On(ms)
-//	assert.Equal(t, 1, len(tp.output))
-//	var ret map[string]interface{}
-//	json.Unmarshal(tp.output[0], &ret)
-//	assert.Equal(t, "insert", ret["command_type"])
-//	assert.Equal(t, 500, len(ret["command"].(string)))
-//}
 
 func TestParseOldInsert(t *testing.T) {
 	tp := &testPublisher{}
@@ -203,9 +193,9 @@ func TestRemainingBytesDiscardedOnError(t *testing.T) {
 	}
 }
 
-func genQuery(collectionName string, query string) ([]byte, error) {
+func genQuery(collectionName string, request request) ([]byte, error) {
 	var document map[string]interface{}
-	err := json.Unmarshal([]byte(query), &document)
+	err := json.Unmarshal([]byte(request.query), &document)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +210,7 @@ func genQuery(collectionName string, query string) ([]byte, error) {
 		flags         uint32
 	}{
 		length,
-		0,
+		request.requestID,
 		0,
 		OP_QUERY,
 		0,
@@ -234,9 +224,9 @@ func genQuery(collectionName string, query string) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-func genReply(documents []string) ([]byte, error) {
+func genReply(response response) ([]byte, error) {
 	var serializedDocs []byte
-	for _, rawDoc := range documents {
+	for _, rawDoc := range response.replyDocs {
 		var doc map[string]interface{}
 		err := json.Unmarshal([]byte(rawDoc), &doc)
 		if err != nil {
@@ -258,12 +248,12 @@ func genReply(documents []string) ([]byte, error) {
 	}{
 		length,
 		0,
-		0,
+		response.responseTo,
 		OP_REPLY,
 		0,
 		0,
 		0,
-		uint32(len(documents)),
+		uint32(len(response.replyDocs)),
 	}
 	b := bytes.NewBuffer(make([]byte, 0))
 	binary.Write(b, binary.LittleEndian, prologue)

@@ -259,40 +259,44 @@ func (p *Parser) parseResponse(r io.Reader, ts time.Time) error {
 				return err
 			}
 			q, ok := p.qcache.Pop(header.ResponseTo)
-			q.ResponseLength = len(data) + 16 // Payload length including header
 			if !ok {
 				p.logger.WithField("responseTo", header.ResponseTo).
 					Debug("Query not found in cache")
-			} else {
-				q.NReturned = m.NumberReturned
-				if !ts.After(q.Timestamp) {
-					p.logger.WithFields(logrus.Fields{
-						"end":   ts,
-						"start": q.Timestamp}).Debug("End timestamp before start")
-					q.DurationMs = 0
-				} else {
-					q.DurationMs = float64(ts.Sub(q.Timestamp).Nanoseconds()) / 1e6
-				}
+				metrics.Counter("mongodb.unmatched_responses").Add()
+				continue
+			}
 
-				if q.CommandType == Insert {
-					if len(m.Documents) > 0 {
-						q.NInserted, _ = getIntegerValue(m.Documents[0], "n")
-					}
-				} else if q.CommandType == Find {
-					if len(m.Documents) > 0 {
-						if cursor, ok := getDocValue(m.Documents[0], "cursor"); ok {
-							if firstBatch, ok := getArrayValue(document(cursor), "firstBatch"); ok {
-								q.NReturned = int32(len(firstBatch))
-							}
+			q.ResponseLength = len(data) + 16 // Payload length including header
+			q.NReturned = m.NumberReturned
+			if !ts.After(q.Timestamp) {
+				p.logger.WithFields(logrus.Fields{
+					"end":   ts,
+					"start": q.Timestamp}).Debug("End timestamp before start")
+				q.DurationMs = 0
+			} else {
+				q.DurationMs = float64(ts.Sub(q.Timestamp).Nanoseconds()) / 1e6
+			}
+
+			if q.CommandType == Insert {
+				if len(m.Documents) > 0 {
+					q.NInserted, _ = getIntegerValue(m.Documents[0], "n")
+				}
+			} else if q.CommandType == Find {
+				if len(m.Documents) > 0 {
+					if cursor, ok := getDocValue(m.Documents[0], "cursor"); ok {
+						if firstBatch, ok := getArrayValue(document(cursor), "firstBatch"); ok {
+							q.NReturned = int32(len(firstBatch))
 						}
 					}
 				}
-				p.publish(q)
 			}
-
-			// TODO: do something for OP_COMMAND_REPLY
+			metrics.Counter("mongodb.responses_parsed").Add()
+			p.publish(q)
+		case OP_COMMANDREPLY:
+			p.logger.Debug("Skipping OP_COMMAND_REPLY response")
+		default:
+			p.logger.WithField("opcode", header.OpCode).Debug("Skipping unexpected response")
 		}
-		metrics.Counter("mongodb.responses_parsed").Add()
 
 	}
 }
