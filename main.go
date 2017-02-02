@@ -56,7 +56,7 @@ func run(options *GlobalOptions) error {
 			Publisher: publish.NewBufferedPublisher(1024),
 		}
 	} else {
-		log.Println("`%s` isn't a supported parser name.")
+		log.Printf("`%s` isn't a supported parser name.\n", options.ParserName)
 		log.Println("Valid parsers are `mongodb` and `mysql`.")
 		os.Exit(1)
 	}

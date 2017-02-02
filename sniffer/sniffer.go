@@ -196,7 +196,6 @@ func newPcapHandle(iface string, snaplen int, pollTimeout time.Duration, bufSize
 	p.SetBufferSize(bufSize)
 	h, err := p.Activate()
 	return &pcapSource{h}, err
-	return &pcapSource{h}, err
 }
 
 func newAfpacketHandle(iface string, frameSize int, blockSize int, numBlocks int,
