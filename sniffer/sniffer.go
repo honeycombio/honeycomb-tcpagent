@@ -41,6 +41,7 @@ type packetDataSource interface {
 	gopacket.PacketDataSource
 	SetBPFFilter(filter string) error
 	LinkLayerType() gopacket.LayerType
+	ReportStats()
 }
 
 type afpacketSource struct {
@@ -49,6 +50,10 @@ type afpacketSource struct {
 
 func (a *afpacketSource) LinkLayerType() gopacket.LayerType {
 	return layers.LayerTypeEthernet
+}
+
+func (a *afpacketSource) ReportStats() {
+	// Nothing for now
 }
 
 type pcapSource struct {
@@ -61,6 +66,21 @@ func (p *pcapSource) LinkLayerType() gopacket.LayerType {
 	} else {
 		return layers.LayerTypeEthernet
 	}
+}
+
+func (p *pcapSource) ReportStats() {
+	stats, err := p.Stats()
+	if err != nil {
+		logrus.WithError(err).Error("Failed to read pcap stats")
+		return
+	}
+	if stats.PacketsDropped > 0 {
+		metrics.Gauge("sniffer.packets_dropped").Set(int64(stats.PacketsDropped))
+	}
+	if stats.PacketsIfDropped > 0 {
+		metrics.Gauge("sniffer.packets_if_dropped").Set(int64(stats.PacketsIfDropped))
+	}
+	metrics.Gauge("sniffer.packets_received").Set(int64(stats.PacketsReceived))
 }
 
 func New(options Options, cf ConsumerFactory) (*Sniffer, error) {
@@ -154,6 +174,7 @@ loop:
 			TC: ci.Timestamp.Add(-sniffer.closeTimeout),
 		}
 		if ctr%1000 == 0 {
+			sniffer.packetSource.ReportStats()
 			assembler.FlushWithOptions(flushOptions)
 		}
 
