@@ -116,6 +116,7 @@ func (p *Parser) On(ms sniffer.MessageStream) {
 		}
 		if err != io.EOF {
 			p.logger.WithError(err).WithField("isRequest", isRequest).Debug("Error parsing request")
+			metrics.Counter("mongodb.parse_errors").Add()
 			discardBuffer := make([]byte, 4096)
 			for err != io.EOF {
 				_, err = m.Read(discardBuffer)
@@ -310,7 +311,7 @@ func (p *Parser) publish(q *Event) {
 	}
 	ok := p.publisher.Publish(s)
 	if ok {
-		metrics.Counter("mongodb.events_published").Add()
+		metrics.Counter("mongodb.events_submitted").Add()
 	} else {
 		p.logger.Debug("Failed to publish event")
 		metrics.Counter("mongodb.events_dropped").Add()
@@ -365,8 +366,8 @@ func newSafeBuffer(bufsize int) ([]byte, error) {
 	// too.
 	// TODO: Can you put multiple large documents in one insert or reply and
 	// exceed this limit?
-	if bufsize > 32*1024*1024 {
-		return nil, fmt.Errorf("Buffer size %d too large", bufsize)
+	if (bufsize < 0) || (bufsize > 32*1024*1024) {
+		return nil, fmt.Errorf("Invalid buffer size %d", bufsize)
 	}
 	return make([]byte, bufsize), nil
 }

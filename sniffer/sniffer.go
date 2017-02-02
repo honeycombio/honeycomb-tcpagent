@@ -26,7 +26,7 @@ type Options struct {
 	Device       string `long:"device" description:"Network interface to listen on"`
 	SnapLen      int    `long:"snaplen" default:"65535" description:"Capture snapshot length"`
 	BufSizeMb    int    `long:"bufsize" description:"AF_PACKET buffer size in megabytes" default:"30"`
-	FlushTimeout int    `long:"flushtimeout" description:"Time in seconds to wait before flushing buffered data for a connection" default:"60"`
+	FlushTimeout int    `long:"flushtimeout" description:"Time in seconds to wait before flushing buffered data for a connection" default:"5"`
 	PcapFile     string `long:"pcapfile" description:"For offline packet captures, path to pcap file"`
 }
 

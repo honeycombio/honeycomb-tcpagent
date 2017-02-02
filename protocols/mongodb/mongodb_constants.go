@@ -197,6 +197,10 @@ func readReplyMsg(data []byte) (*replyMsg, error) {
 		logrus.WithField("NumerReturned", m.NumberReturned).
 			Info("large NumberReturned value, not reading all documents")
 		numberToRead = maxDocArrayLength
+	} else if numberToRead < 0 {
+		logrus.WithField("NumberReturned", m.NumberReturned).
+			Info("Negative NumberReturned value, bailing")
+		return nil, errors.New("Invalid NumberReturned value in reply message")
 	}
 	m.Documents = make([]document, numberToRead)
 	for i := 0; i < int(numberToRead); i++ {
