@@ -25,7 +25,7 @@ type Options struct {
 type Event struct {
 	ClientIP        string    `json:"client_ip"`
 	Collection      string    `json:"collection"`
-	CommandType     opType    `json:"command_type"`
+	CommandType     string    `json:"command_type"`
 	Command         document  `json:"command"`
 	Database        string    `json:"database"`
 	DurationMs      float64   `json:"duration_ms"`
@@ -167,7 +167,10 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 				q.Command = m.Query
 				if len(innerCollectionName) > 0 {
 					q.Collection = innerCollectionName
-				} else if cmdType == GetMore {
+				} else if cmdType == "getMore" {
+					// Protocol is inconsistent here -- these queries have the
+					// form
+					// {"getMore": 1, "collection": "myCollectionName"}
 					innerCollectionName, ok := m.Query["collection"].(string)
 					if ok {
 						q.Collection = innerCollectionName
@@ -278,11 +281,11 @@ func (p *Parser) parseResponse(r io.Reader, ts time.Time) error {
 				q.DurationMs = float64(ts.Sub(q.Timestamp).Nanoseconds()) / 1e6
 			}
 
-			if q.CommandType == Insert {
+			if q.CommandType == "insert" {
 				if len(m.Documents) > 0 {
 					q.NInserted, _ = getIntegerValue(m.Documents[0], "n")
 				}
-			} else if q.CommandType == Find {
+			} else if q.CommandType == "find" {
 				if len(m.Documents) > 0 {
 					if cursor, ok := getDocValue(m.Documents[0], "cursor"); ok {
 						if firstBatch, ok := getArrayValue(document(cursor), "firstBatch"); ok {
@@ -372,24 +375,32 @@ func newSafeBuffer(bufsize int) ([]byte, error) {
 	return make([]byte, bufsize), nil
 }
 
-func extractCommandType(m document) (cmdType opType, collection string, ok bool) {
+func extractCommandType(m document) (cmd string, collection string, ok bool) {
 	// Note order matters in this array -- findAndModify commands contain both
 	// a "findAndModify" and an "update" field.
-	for _, cmdType = range []opType{FindAndModify, Insert, Update, Delete, Find, Count, Distinct, Aggregate, MapReduce} {
-		c, ok := m[string(cmdType)]
+	for _, cmdType := range []string{"findAndModify", "insert", "update", "delete",
+		"find", "count", "distinct", "aggregate", "mapReduce"} {
+		c, ok := m[cmdType]
 		if ok {
 			collection, _ := c.(string)
-			return cmdType, collection, true
+			return string(cmdType), collection, true
 		}
 	}
 
-	for _, cmdType = range []opType{GetMore, GetLastError, GetPrevError, Eval} {
-		_, ok := m[string(cmdType)]
+	for _, cmdType := range []string{"getMore", "getLastError", "getPrevError", "eval"} {
+		_, ok := m[cmdType]
 		if ok {
 			return cmdType, "", true
 		}
 	}
-	return cmdType, "", false
+
+	if len(m) == 1 {
+		for k := range m {
+			return k, "", true
+		}
+	}
+
+	return "", "", false
 }
 
 func parseFullCollectionName(fullCollectionName string) (db string, collection string) {

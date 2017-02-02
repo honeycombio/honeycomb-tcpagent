@@ -121,6 +121,27 @@ func TestParseQueries(t *testing.T) {
 			response{1, []string{`{}`}},
 			``,
 		},
+		{ // isMaster command
+			request{0, `{"isMaster" :1}`},
+			response{0, []string{`{}`}},
+			`{
+				"command": "{\"isMaster\":1}",
+				"client_ip": "10.0.0.22",
+				"collection": "$cmd",
+				"command_type": "isMaster",
+				"database": "db",
+				"duration_ms": 0,
+				"namespace": "db.$cmd",
+				"ninserted": 0,
+				"normalized_query": "{\"isMaster\":1}",
+				"nreturned": 1,
+				"request_id": 0,
+				"request_length": 59,
+				"response_length": 41,
+				"server_ip": "10.0.0.23",
+				"timestamp": "2006-01-02T15:04:05Z"
+			}`,
+		},
 	}
 	for _, testcase := range queryTests {
 		tp := &testPublisher{}

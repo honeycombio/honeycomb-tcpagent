@@ -27,28 +27,6 @@ const (
 	OP_COMMANDREPLY = 2011
 )
 
-type opType string
-
-const (
-	Find                   opType = "find"
-	Insert                        = "insert"
-	Update                        = "update"
-	Delete                        = "delete"
-	FindAndModify                 = "findAndModify"
-	GetMore                       = "getMore"
-	GetLastError                  = "getLastError"
-	GetPrevError                  = "getPrevError"
-	ParallelCollectionScan        = "parallelCollectionScan"
-	Eval                          = "eval"
-	Count                         = "count"
-	Distinct                      = "distinct"
-	MapReduce                     = "mapReduce"
-	Aggregate                     = "aggregate"
-
-	// TODO: handle administrative commands as well?
-	// probably need isMaster and getNonce, ping, at minimum.
-)
-
 // Types used in the MongoDB wire protocol
 type document bson.M
 type cstring []byte
