@@ -57,6 +57,7 @@ func (a *afpacketSource) ReportStats() {
 }
 
 type pcapSource struct {
+	hasStats bool // Whether the handle can report statistics (true for live handles)
 	*pcap.Handle
 }
 
@@ -69,6 +70,9 @@ func (p *pcapSource) LinkLayerType() gopacket.LayerType {
 }
 
 func (p *pcapSource) ReportStats() {
+	if !p.hasStats {
+		return
+	}
 	stats, err := p.Stats()
 	if err != nil {
 		logrus.WithError(err).Error("Failed to read pcap stats")
@@ -216,7 +220,7 @@ func newPcapHandle(iface string, snaplen int, pollTimeout time.Duration, bufSize
 	p.SetPromisc(true)
 	p.SetBufferSize(bufSize)
 	h, err := p.Activate()
-	return &pcapSource{h}, err
+	return &pcapSource{true, h}, err
 }
 
 func newAfpacketHandle(iface string, frameSize int, blockSize int, numBlocks int,
@@ -233,7 +237,7 @@ func newAfpacketHandle(iface string, frameSize int, blockSize int, numBlocks int
 
 func newOfflineHandle(filepath string) (*pcapSource, error) {
 	h, err := pcap.OpenOffline(filepath)
-	return &pcapSource{h}, err
+	return &pcapSource{false, h}, err
 }
 
 func afpacketComputeSize(targetSizeMb int, snaplen int, pageSize int) (
