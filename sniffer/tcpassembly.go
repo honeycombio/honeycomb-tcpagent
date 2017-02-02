@@ -122,11 +122,12 @@ func (s *Stream) ReassemblyComplete(ac reassembly.AssemblerContext) bool {
 
 func (s *Stream) Accept(tcp *layers.TCP, ci gopacket.CaptureInfo, dir reassembly.TCPFlowDirection,
 	ackSeq reassembly.Sequence, start *bool, ac reassembly.AssemblerContext) bool {
-	// TODO: Consider setting *start=true here to accept streams even if we
-	// haven't seen a SYN -- this lets us record existing connections when we
-	// start listening. But we need to be really robust against parsing
-	// malformed application data if so, because the first TCP packet we get
-	// might be midway through an application message.
+	// Don't require a SYN; always start processing a new connection we see.
+	// This means that we need to be fully robust against parsing bad packets,
+	// but allows us to capture data on existing connections as soon as we
+	// start up -- which is common if you have long-lived connection pools to
+	// your database.
+	*start = true
 	return true
 }
 
