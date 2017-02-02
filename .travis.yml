@@ -12,7 +12,9 @@ before_install:
   - sudo apt-get -qq update
   - sudo apt-get install -y libpcap0.8-dev
 
-script: go test github.com/honeycombio/honeycomb-tcpagent/...
+script:
+  - go test github.com/honeycombio/honeycomb-tcpagent/...
+  - go vet ./...
 
 after_success:
   - rm $GOPATH/bin/honeycomb-tcpagent
