@@ -18,12 +18,13 @@ import (
 )
 
 type GlobalOptions struct {
-	Help       bool            `short:"h" long:"help" description:"Show this help message"`
-	Debug      bool            `long:"debug" description:"Print verbose debug logs"`
-	MySQL      mysql.Options   `group:"MySQL parser options" namespace:"mysql"`
-	MongoDB    mongodb.Options `group:"MongoDB parser options" namespace:"mongodb"`
-	Sniffer    sniffer.Options `group:"Packet capture options" namespace:"capture"`
-	ParserName string          `short:"p" long:"parser" default:"mongodb" description:"Which protocol to parse (MySQL or MongoDB)"` // TODO: just support both!
+	Help           bool            `short:"h" long:"help" description:"Show this help message"`
+	Debug          bool            `long:"debug" description:"Print verbose debug logs"`
+	MySQL          mysql.Options   `group:"MySQL parser options" namespace:"mysql"`
+	MongoDB        mongodb.Options `group:"MongoDB parser options" namespace:"mongodb"`
+	Sniffer        sniffer.Options `group:"Packet capture options" namespace:"capture"`
+	ParserName     string          `short:"p" long:"parser" default:"mongodb" description:"Which protocol to parse (MySQL or MongoDB)"` // TODO: just support both!
+	StatusInterval int             `long:"status_interval" default:"60" description:"How frequently to print summary statistics, in seconds"`
 }
 
 func main() {
@@ -32,7 +33,7 @@ func main() {
 		os.Exit(1)
 	}
 	configureLogging(options.Debug)
-	go logMetrics()
+	go logMetrics(options.StatusInterval)
 	err = run(options)
 	if err != nil {
 		os.Exit(1)
@@ -91,8 +92,8 @@ func parseFlags() (*GlobalOptions, error) {
 	return &options, nil
 }
 
-func logMetrics() {
-	ticker := time.NewTicker(time.Second * 30)
+func logMetrics(interval int) {
+	ticker := time.NewTicker(time.Second * time.Duration(interval))
 	for range ticker.C {
 		counters, gauges := metrics.Snapshot()
 		logrus.WithFields(logrus.Fields{
