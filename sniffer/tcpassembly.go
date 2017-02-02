@@ -47,22 +47,26 @@ type Stream struct {
 
 func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.AssemblerContext) {
 	dir, _, _, skipped := sg.Info()
-	if skipped > 0 {
-		logrus.WithFields(logrus.Fields{
-			"skipped": skipped,
-			"flow":    s.getFlow(dir)}).Warn("Skipped bytes in stream")
-		metrics.Counter("sniffer.bytes_skipped").AddN(uint64(skipped))
-	}
 
 	length, _ := sg.Lengths()
 	data := sg.Fetch(length)
-	if s.started && s.currDir == dir {
+	if skipped == 0 && s.started && s.currDir == dir {
 		s.current.bytes <- data
 	} else {
+		// End the current message and create a new one whenever the direction
+		// changes, or we've skipped segments.
 		if s.started {
 			close(s.current.bytes)
 		}
 		s.started = true
+
+		if skipped > 0 {
+			logrus.WithFields(logrus.Fields{
+				"skipped": skipped,
+				"flow":    s.getFlow(dir)}).Warn("Skipped bytes in stream")
+			metrics.Counter("sniffer.bytes_skipped").AddN(uint64(skipped))
+		}
+
 		s.currDir = dir
 		s.Lock()
 		s.current = &message{
