@@ -63,7 +63,7 @@ func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.Assemb
 		if skipped > 0 {
 			logrus.WithFields(logrus.Fields{
 				"skipped": skipped,
-				"flow":    s.getFlow(dir)}).Warn("Skipped bytes in stream")
+				"flow":    s.getFlow(dir)}).Debug("Skipped bytes in stream")
 			metrics.Counter("sniffer.bytes_skipped").AddN(uint64(skipped))
 		}
 
