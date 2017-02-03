@@ -222,6 +222,7 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 				return err
 			}
 			q.CommandType = "delete"
+			q.Command = m.Selector
 			q.Namespace = string(m.FullCollectionName)
 			q.Database, q.Collection = parseFullCollectionName(string(m.FullCollectionName))
 			p.publish(q)
