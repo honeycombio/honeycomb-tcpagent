@@ -66,6 +66,7 @@ func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.Assemb
 				"flow":    s.getFlow(dir)}).Debug("Skipped bytes in stream")
 			metrics.Counter("sniffer.bytes_skipped").AddN(uint64(skipped))
 		}
+		metrics.Counter("sniffer.bytes_processed").AddN(uint64(length))
 
 		s.currDir = dir
 		s.Lock()

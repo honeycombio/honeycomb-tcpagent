@@ -96,9 +96,13 @@ func logMetrics(interval int) {
 	ticker := time.NewTicker(time.Second * time.Duration(interval))
 	for range ticker.C {
 		counters, gauges := metrics.Snapshot()
-		logrus.WithFields(logrus.Fields{
-			"counters": counters,
-			"gauges":   gauges,
-		}).Info("honeycomb-tcpagent statistics")
+		logger := logrus.WithFields(logrus.Fields{})
+		for k, v := range counters {
+			logger = logger.WithField(k, v)
+		}
+		for k, v := range gauges {
+			logger = logger.WithField(k, v)
+		}
+		logger.Info("honeycomb-tcpagent statistics")
 	}
 }
