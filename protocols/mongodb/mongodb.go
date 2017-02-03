@@ -185,7 +185,7 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 			if eviction {
 				ctr := metrics.Counter("mongodb.qcache_evictions")
 				ctr.Add()
-				p.logger.Warn("Query cache full")
+				p.logger.Debug("Query cache full")
 			}
 		case OP_UPDATE:
 			m, err := readUpdateMsg(data)
@@ -239,7 +239,7 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 			if eviction {
 				ctr := metrics.Counter("mongodb.qcache_evictions")
 				ctr.Add()
-				p.logger.Warn("Query cache full")
+				p.logger.Debug("Query cache full")
 			}
 		}
 		metrics.Counter("mongodb.requests_parsed").Add()
