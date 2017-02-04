@@ -13,6 +13,7 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/codahale/metrics"
+	"github.com/honeycombio/honeycomb-tcpagent/logging"
 	"github.com/honeycombio/honeycomb-tcpagent/protocols/mongodb/queryshape"
 	"github.com/honeycombio/honeycomb-tcpagent/publish"
 	"github.com/honeycombio/honeycomb-tcpagent/sniffer"
@@ -81,7 +82,7 @@ func (pf *ParserFactory) New(flow sniffer.IPPortTuple) sniffer.Consumer {
 		options:   pf.Options,
 		flow:      flow,
 		qcache:    newQCache(128),
-		logger:    logrus.WithFields(logrus.Fields{"flow": flow, "component": "mongodb"}),
+		logger:    logging.NewLogger(logrus.Fields{"flow": flow, "component": "mongodb"}),
 		publisher: pf.Publisher,
 	}
 }
@@ -95,7 +96,7 @@ type Parser struct {
 	options   Options
 	flow      sniffer.IPPortTuple
 	qcache    *QCache
-	logger    *logrus.Entry
+	logger    *logging.Logger
 	publisher publish.Publisher
 }
 
@@ -103,19 +104,21 @@ func (p *Parser) On(ms sniffer.MessageStream) {
 	for {
 		m, ok := ms.Next()
 		if !ok {
-			p.logger.Debug("Message stream closed")
+			p.logger.Debug("Message stream closed", logrus.Fields{})
 			return
 		}
 		isRequest := m.Flow().DstPort == p.options.Port
 		var err error
-		p.logger.WithField("isRequest", isRequest).Debug("Parsing MongoDB message")
+		p.logger.Debug("Parsing MongoDB message",
+			logrus.Fields{"isRequest": isRequest})
 		if isRequest {
 			err = p.parseRequest(m, m.Timestamp())
 		} else {
 			err = p.parseResponse(m, m.Timestamp())
 		}
 		if err != io.EOF {
-			p.logger.WithError(err).WithField("isRequest", isRequest).Debug("Error parsing request")
+			p.logger.Debug("Error parsing request",
+				logrus.Fields{"error": err, "isRequest": isRequest})
 			metrics.Counter("mongodb.parse_errors").Add()
 			discardBuffer := make([]byte, 4096)
 			for err != io.EOF {
@@ -131,11 +134,12 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 		if err != nil {
 			return err
 		}
-		p.logger.WithFields(logrus.Fields{
-			"opCode":        header.OpCode,
-			"requestID":     header.RequestID,
-			"responseTo":    header.ResponseTo,
-			"messageLength": header.MessageLength}).Debug("Parsed request header")
+		p.logger.Debug("Parsed request header",
+			logrus.Fields{
+				"opCode":        header.OpCode,
+				"requestID":     header.RequestID,
+				"responseTo":    header.ResponseTo,
+				"messageLength": header.MessageLength})
 
 		q := &Event{}
 		q.RequestID = header.RequestID
@@ -146,7 +150,8 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 		case OP_QUERY:
 			m, err := readQueryMsg(data)
 			if err != nil {
-				p.logger.WithError(err).Debug("Error parsing query")
+				p.logger.Debug("Error parsing query",
+					logrus.Fields{"error": err})
 				return err
 			}
 			q.Command = m.Query
@@ -185,12 +190,13 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 			if eviction {
 				ctr := metrics.Counter("mongodb.qcache_evictions")
 				ctr.Add()
-				p.logger.Debug("Query cache full")
+				p.logger.Debug("Query cache full", logrus.Fields{})
 			}
 		case OP_UPDATE:
 			m, err := readUpdateMsg(data)
 			if err != nil {
-				p.logger.WithError(err).Debug("Error parsing update")
+				p.logger.Debug("Error parsing update",
+					logrus.Fields{"error": err})
 				return err
 			}
 			// Grunge this into the more modern update syntax
@@ -207,7 +213,8 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 		case OP_INSERT:
 			m, err := readInsertMsg(data)
 			if err != nil {
-				p.logger.WithError(err).Debug("Error parsing insert")
+				p.logger.Debug("Error parsing insert",
+					logrus.Fields{"error": err})
 				return err
 			}
 			q.CommandType = "insert"
@@ -218,7 +225,8 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 		case OP_DELETE:
 			m, err := readDeleteMsg(data)
 			if err != nil {
-				p.logger.WithError(err).Debug("Error parsing delete")
+				p.logger.Debug("Error parsing delete",
+					logrus.Fields{"error": err})
 				return err
 			}
 			q.CommandType = "delete"
@@ -229,7 +237,8 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 		case OP_GET_MORE:
 			m, err := readGetMoreMsg(data)
 			if err != nil {
-				p.logger.WithError(err).Debug("Error parsing getMore")
+				p.logger.Debug("Error parsing getMore",
+					logrus.Fields{"error": err})
 				return err
 			}
 			q.CommandType = "getMore"
@@ -239,7 +248,7 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 			if eviction {
 				ctr := metrics.Counter("mongodb.qcache_evictions")
 				ctr.Add()
-				p.logger.Debug("Query cache full")
+				p.logger.Debug("Query cache full", logrus.Fields{})
 			}
 		}
 		metrics.Counter("mongodb.requests_parsed").Add()
@@ -252,11 +261,12 @@ func (p *Parser) parseResponse(r io.Reader, ts time.Time) error {
 		if err != nil {
 			return err
 		}
-		p.logger.WithFields(logrus.Fields{
-			"opCode":        header.OpCode,
-			"requestID":     header.RequestID,
-			"responseTo":    header.ResponseTo,
-			"messageLength": header.MessageLength}).Debug("Parsed response header")
+		p.logger.Debug("Parsed response header",
+			logrus.Fields{
+				"opCode":        header.OpCode,
+				"requestID":     header.RequestID,
+				"responseTo":    header.ResponseTo,
+				"messageLength": header.MessageLength})
 		switch header.OpCode {
 		case OP_REPLY:
 			m, err := readReplyMsg(data)
@@ -265,8 +275,8 @@ func (p *Parser) parseResponse(r io.Reader, ts time.Time) error {
 			}
 			q, ok := p.qcache.Pop(header.ResponseTo)
 			if !ok {
-				p.logger.WithField("responseTo", header.ResponseTo).
-					Debug("Query not found in cache")
+				p.logger.Debug("Query not found in cache",
+					logrus.Fields{"responseTo": header.ResponseTo})
 				metrics.Counter("mongodb.unmatched_responses").Add()
 				continue
 			}
@@ -274,9 +284,10 @@ func (p *Parser) parseResponse(r io.Reader, ts time.Time) error {
 			q.ResponseLength = len(data) + 16 // Payload length including header
 			q.NReturned = m.NumberReturned
 			if !ts.After(q.Timestamp) {
-				p.logger.WithFields(logrus.Fields{
-					"end":   ts,
-					"start": q.Timestamp}).Debug("End timestamp before start")
+				p.logger.Debug("End timestamp before start",
+					logrus.Fields{
+						"end":   ts,
+						"start": q.Timestamp})
 				q.DurationMs = 0
 			} else {
 				q.DurationMs = float64(ts.Sub(q.Timestamp).Nanoseconds()) / 1e6
@@ -298,9 +309,10 @@ func (p *Parser) parseResponse(r io.Reader, ts time.Time) error {
 			metrics.Counter("mongodb.responses_parsed").Add()
 			p.publish(q)
 		case OP_COMMANDREPLY:
-			p.logger.Debug("Skipping OP_COMMAND_REPLY response")
+			p.logger.Debug("Skipping OP_COMMAND_REPLY response", logrus.Fields{})
 		default:
-			p.logger.WithField("opcode", header.OpCode).Debug("Skipping unexpected response")
+			p.logger.Debug("Skipping unexpected response",
+				logrus.Fields{"opcode": header.OpCode})
 		}
 
 	}
@@ -311,13 +323,14 @@ func (p *Parser) publish(q *Event) {
 	q.ServerIP = p.flow.DstIP.String()
 	s, err := json.Marshal(&q)
 	if err != nil {
-		p.logger.WithError(err).Error("Error marshaling query event")
+		p.logger.Error("Error marshaling query event",
+			logrus.Fields{"error": err})
 	}
 	ok := p.publisher.Publish(s)
 	if ok {
 		metrics.Counter("mongodb.events_submitted").Add()
 	} else {
-		p.logger.Debug("Failed to publish event")
+		p.logger.Debug("Failed to submit event", logrus.Fields{})
 		metrics.Counter("mongodb.events_dropped").Add()
 	}
 }
