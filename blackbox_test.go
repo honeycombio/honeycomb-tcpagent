@@ -11,11 +11,14 @@ import (
 )
 
 type testPublisher struct {
-	output [][]byte
+	eventCount uint64
+	sync.Mutex
 }
 
-func (tp *testPublisher) Publish(m []byte) bool {
-	tp.output = append(tp.output, m)
+func (tp *testPublisher) Publish([]byte) bool {
+	tp.Lock()
+	tp.eventCount++
+	tp.Unlock()
 	return true
 }
 
@@ -33,9 +36,7 @@ func TestIngestion(t *testing.T) {
 		PcapFile:     "testdata/tcpd_any.pcap",
 	}
 	m := &sync.Mutex{}
-	tp := &testPublisher{
-		output: make([][]byte, 0),
-	}
+	tp := &testPublisher{}
 
 	pf := &mongodb.ParserFactory{
 		Options:   mongodb.Options{Port: 27017},
@@ -44,9 +45,9 @@ func TestIngestion(t *testing.T) {
 	s, _ := sniffer.New(options, pf)
 	s.Run()
 	m.Lock()
-	// TODO what's wrong here?
-	assert.True(t, len(tp.output) > 70000)
-	fmt.Println("output length", len(tp.output))
+	// TODO actually wait for all publishing to finish
+	assert.True(t, tp.eventCount > 70000)
+	fmt.Println("event count", tp.eventCount)
 	m.Unlock()
 }
 
