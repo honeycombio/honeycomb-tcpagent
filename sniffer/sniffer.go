@@ -90,7 +90,7 @@ func (p *pcapSource) ReportStats() {
 func New(options Options, cf ConsumerFactory) (*Sniffer, error) {
 	flushTimeout := time.Duration(options.FlushTimeout) * time.Second
 	// TODO: does the close timeout really need to be configurable?
-	closeTimeout := time.Duration(3600) * time.Second
+	closeTimeout := time.Duration(60) * time.Second
 	s := &Sniffer{
 		consumerFactory: cf,
 		flushTimeout:    flushTimeout,
