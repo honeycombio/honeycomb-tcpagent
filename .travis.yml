@@ -19,7 +19,6 @@ script:
 after_success:
   - rm $GOPATH/bin/honeycomb-tcpagent
   - go install -ldflags "-X main.BuildID=1.${TRAVIS_BUILD_NUMBER} -extldflags \"-static\"" github.com/honeycombio/honeycomb-tcpagent/...
-  # Alias binary name
 
 addons:
     artifacts:
