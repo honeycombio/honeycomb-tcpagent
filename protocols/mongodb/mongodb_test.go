@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"reflect"
 	"strings"
 	"testing"
 	"testing/quick"
@@ -156,10 +155,7 @@ func TestParseQueries(t *testing.T) {
 		parser.On(ms)
 		if len(testcase.output) > 0 {
 			assert.Equal(t, 1, len(tp.output))
-			err = assertJSONEquality(string(tp.output[0]), testcase.output)
-			if err != nil {
-				t.Error("JSON equality check failed", err)
-			}
+			assert.JSONEq(t, string(tp.output[0]), testcase.output)
 		} else {
 			assert.Equal(t, 0, len(tp.output))
 		}
@@ -373,23 +369,4 @@ func (tp *testPublisher) Publish(m []byte) bool {
 func newParser(publisher publish.Publisher) sniffer.Consumer {
 	pf := ParserFactory{Options: Options{Port: 27017}, Publisher: publisher}
 	return pf.New(defaultFlow())
-}
-
-func assertJSONEquality(s1, s2 string) error {
-	var o1 interface{}
-	var o2 interface{}
-
-	var err error
-	err = json.Unmarshal([]byte(s1), &o1)
-	if err != nil {
-		return fmt.Errorf("Error mashalling string 1 :: %s", err.Error())
-	}
-	err = json.Unmarshal([]byte(s2), &o2)
-	if err != nil {
-		return fmt.Errorf("Error mashalling string 2 :: %s", err.Error())
-	}
-	if !reflect.DeepEqual(o1, o2) {
-		return fmt.Errorf("JSON equality test failed\nExpected: %v\nGot:%v", s2, s1)
-	}
-	return nil
 }
