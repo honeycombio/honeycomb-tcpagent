@@ -30,7 +30,7 @@ func GetQueryShape(q bson.M) string {
 	}
 	pruned := make(bson.M)
 	for k, v := range q {
-		if k[0] == '$' || k == "filter" || k == "query" || k == "documents" {
+		if strings.HasPrefix(k, "$") || k == "filter" || k == "query" || k == "documents" {
 			pruned[k] = flattenOp(v)
 		} else {
 			pruned[k] = flatten(v)
@@ -75,7 +75,7 @@ func flattenSlice(slice []interface{}, fromOp bool) interface{} {
 func flattenMap(m bson.M, fromOp bool) interface{} {
 	rv := make(bson.M)
 	for k, v := range m {
-		if k[0] == '$' {
+		if strings.HasPrefix(k, "$") {
 			rv[k] = flattenOp(v)
 		} else {
 			flattened := flatten(v)
