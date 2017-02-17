@@ -50,6 +50,20 @@ func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.Assemb
 
 	length, _ := sg.Lengths()
 	data := sg.Fetch(length)
+
+	// It's been reported that ac.GetCaptureInfo().Timestamp very rarely fails
+	// with a nil pointer error. Absent a reasonable strategy for tracking down
+	// the underlying issue in gopacket, check for this condition.
+	var timestamp time.Time
+	if ac != nil {
+		timestamp = ac.GetCaptureInfo().Timestamp
+	} else {
+		logrus.WithFields(logrus.Fields{
+			"skipped": skipped,
+			"ac":      ac,
+			"flow":    s.getFlow(dir),
+		}).Error("Missing capture info")
+	}
 	if skipped == 0 && s.started && s.currDir == dir {
 		s.current.bytes <- data
 	} else {
@@ -72,7 +86,7 @@ func (s *Stream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.Assemb
 		s.Lock()
 		s.current = &message{
 			flow:      s.getFlow(dir),
-			timestamp: ac.GetCaptureInfo().Timestamp,
+			timestamp: timestamp,
 			bytes:     make(chan []byte, 32),
 		}
 		s.Unlock()
