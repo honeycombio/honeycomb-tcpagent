@@ -13,7 +13,7 @@ before_install:
   - sudo apt-get install -y libpcap0.8-dev
 
 script:
-  - go test github.com/honeycombio/honeycomb-tcpagent/...
+  - go test github.com/honeycombio/honeycomb-tcpagent/... -bench=.
   - go vet ./...
 
 after_success:

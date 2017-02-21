@@ -24,21 +24,21 @@ type Options struct {
 }
 
 type Event struct {
-	ClientIP        string    `json:"client_ip"`
-	Collection      string    `json:"collection"`
-	CommandType     string    `json:"command_type"`
-	Command         document  `json:"command"`
-	Database        string    `json:"database"`
-	DurationMs      float64   `json:"duration_ms"`
-	Namespace       string    `json:"namespace"`
-	NInserted       int       `json:"ninserted"`
-	NormalizedQuery string    `json:"normalized_query,omitempty"`
-	NReturned       int32     `json:"nreturned"`
-	RequestID       int32     `json:"request_id"`
-	RequestLength   int       `json:"request_length"`
-	ResponseLength  int       `json:"response_length"`
-	ServerIP        string    `json:"server_ip"`
-	Timestamp       time.Time `json:"timestamp"`
+	ClientIP        string   `json:"client_ip"`
+	Collection      string   `json:"collection"`
+	CommandType     string   `json:"command_type"`
+	Command         document `json:"command"`
+	Database        string   `json:"database"`
+	DurationMs      float64  `json:"duration_ms"`
+	Namespace       string   `json:"namespace"`
+	NInserted       int      `json:"ninserted"`
+	NormalizedQuery string   `json:"normalized_query,omitempty"`
+	NReturned       int32    `json:"nreturned"`
+	RequestID       int32    `json:"request_id"`
+	RequestLength   int      `json:"request_length"`
+	ResponseLength  int      `json:"response_length"`
+	ServerIP        string   `json:"server_ip"`
+	timestamp       time.Time
 }
 
 func truncate(d document) ([]byte, error) {
@@ -143,7 +143,7 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 
 		q := &Event{}
 		q.RequestID = header.RequestID
-		q.Timestamp = ts
+		q.timestamp = ts
 		q.RequestLength = len(data) + 16 // Payload length including header
 
 		switch header.OpCode {
@@ -283,14 +283,14 @@ func (p *Parser) parseResponse(r io.Reader, ts time.Time) error {
 
 			q.ResponseLength = len(data) + 16 // Payload length including header
 			q.NReturned = m.NumberReturned
-			if !ts.After(q.Timestamp) {
+			if !ts.After(q.timestamp) {
 				p.logger.Debug("End timestamp before start",
 					logrus.Fields{
 						"end":   ts,
-						"start": q.Timestamp})
+						"start": q.timestamp})
 				q.DurationMs = 0
 			} else {
-				q.DurationMs = float64(ts.Sub(q.Timestamp).Nanoseconds()) / 1e6
+				q.DurationMs = float64(ts.Sub(q.timestamp).Nanoseconds()) / 1e6
 			}
 
 			if q.CommandType == "insert" {
@@ -321,18 +321,7 @@ func (p *Parser) parseResponse(r io.Reader, ts time.Time) error {
 func (p *Parser) publish(q *Event) {
 	q.ClientIP = p.flow.SrcIP.String()
 	q.ServerIP = p.flow.DstIP.String()
-	s, err := json.Marshal(&q)
-	if err != nil {
-		p.logger.Error("Error marshaling query event",
-			logrus.Fields{"error": err})
-	}
-	ok := p.publisher.Publish(s)
-	if ok {
-		metrics.Counter("mongodb.events_submitted").Add()
-	} else {
-		p.logger.Debug("Failed to submit event", logrus.Fields{})
-		metrics.Counter("mongodb.events_dropped").Add()
-	}
+	p.publisher.Publish(q, q.timestamp)
 }
 
 type msgHeader struct {

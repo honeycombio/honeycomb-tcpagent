@@ -55,7 +55,6 @@ func TestParseQueries(t *testing.T) {
 				"request_length": 0,
 				"response_length": 0,
 				"duration_ms": 0,
-				"timestamp": "2006-01-02T15:04:05Z",
 				"server_ip": "10.0.0.23",
 				"client_ip": "10.0.0.22",
 				"request_id": 0,
@@ -83,7 +82,6 @@ func TestParseQueries(t *testing.T) {
 				"request_length": 0,
 				"response_length": 0,
 				"duration_ms": 0,
-				"timestamp": "2006-01-02T15:04:05Z",
 				"server_ip": "10.0.0.23",
 				"client_ip": "10.0.0.22",
 				"request_id": 0,
@@ -111,8 +109,7 @@ func TestParseQueries(t *testing.T) {
 				"request_id":0,
 				"request_length":2147,
 				"response_length":64,
-				"server_ip":"10.0.0.23",
-				"timestamp":"2006-01-02T15:04:05Z"
+				"server_ip":"10.0.0.23"
 			}`,
 		},
 		{ // Response without matching request
@@ -137,8 +134,7 @@ func TestParseQueries(t *testing.T) {
 				"request_id": 0,
 				"request_length": 59,
 				"response_length": 41,
-				"server_ip": "10.0.0.23",
-				"timestamp": "2006-01-02T15:04:05Z"
+				"server_ip": "10.0.0.23"
 			}`,
 		},
 	}
@@ -183,7 +179,6 @@ func TestParseOldInsert(t *testing.T) {
 	assert.Equal(t, ret["collection"], "collection0")
 	assert.Equal(t, ret["database"], "db")
 	assert.Equal(t, ret["namespace"], "db.collection0")
-	assert.Equal(t, ret["timestamp"], "2006-01-02T15:04:05Z")
 }
 
 func TestRemainingBytesDiscardedOnError(t *testing.T) {
@@ -361,9 +356,9 @@ type testPublisher struct {
 	output [][]byte
 }
 
-func (tp *testPublisher) Publish(m []byte) bool {
+func (tp *testPublisher) Publish(data interface{}, timestamp time.Time) {
+	m, _ := json.Marshal(data)
 	tp.output = append(tp.output, m)
-	return true
 }
 
 func newParser(publisher publish.Publisher) sniffer.Consumer {
