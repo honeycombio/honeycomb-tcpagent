@@ -1,12 +1,18 @@
 package main_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"net/http"
 	"sync"
 	"testing"
 
 	"github.com/honeycombio/honeycomb-tcpagent/protocols/mongodb"
+	"github.com/honeycombio/honeycomb-tcpagent/publish"
 	"github.com/honeycombio/honeycomb-tcpagent/sniffer"
+	libhoney "github.com/honeycombio/libhoney-go"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,16 +21,24 @@ type testPublisher struct {
 	sync.Mutex
 }
 
-func (tp *testPublisher) Publish([]byte) bool {
-	tp.Lock()
-	tp.eventCount++
-	tp.Unlock()
-	return true
+type testTransport struct {
+	eventCount int
+	sync.Mutex
 }
 
-type nullPublisher struct{}
+func (tr *testTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	tr.Lock()
+	tr.eventCount++
+	tr.Unlock()
+	return &http.Response{Body: ioutil.NopCloser(bytes.NewReader(nil)), StatusCode: 200}, nil
+}
 
-func (np *nullPublisher) Publish([]byte) bool { return true }
+func (tp *testPublisher) Publish(data interface{}) {
+	tp.Lock()
+	json.Marshal(data)
+	tp.eventCount++
+	tp.Unlock()
+}
 
 func TestIngestion(t *testing.T) {
 	options := sniffer.Options{
@@ -35,8 +49,14 @@ func TestIngestion(t *testing.T) {
 		FlushTimeout: 60,
 		PcapFile:     "testdata/tcpd_any.pcap",
 	}
-	m := &sync.Mutex{}
-	tp := &testPublisher{}
+	transport := &testTransport{}
+	libhoneyOptions := libhoney.Config{
+		APIHost:   "http://localhost:9999",
+		Dataset:   "test",
+		WriteKey:  "test",
+		Transport: transport,
+	}
+	tp := publish.NewBufferedPublisher(libhoneyOptions)
 
 	pf := &mongodb.ParserFactory{
 		Options:   mongodb.Options{Port: 27017},
@@ -44,11 +64,11 @@ func TestIngestion(t *testing.T) {
 	}
 	s, _ := sniffer.New(options, pf)
 	s.Run()
-	m.Lock()
+	transport.Lock()
 	// TODO actually wait for all publishing to finish
-	assert.True(t, tp.eventCount > 70000)
-	fmt.Println("event count", tp.eventCount)
-	m.Unlock()
+	assert.True(t, transport.eventCount > 70000)
+	fmt.Println("event count", transport.eventCount)
+	transport.Unlock()
 }
 
 func BenchmarkIngestion(b *testing.B) {
@@ -64,7 +84,7 @@ func BenchmarkIngestion(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		pf := &mongodb.ParserFactory{
 			Options:   mongodb.Options{Port: 27017},
-			Publisher: &nullPublisher{},
+			Publisher: &testPublisher{},
 		}
 		s, _ := sniffer.New(options, pf)
 		s.Run()

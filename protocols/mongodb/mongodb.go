@@ -321,18 +321,7 @@ func (p *Parser) parseResponse(r io.Reader, ts time.Time) error {
 func (p *Parser) publish(q *Event) {
 	q.ClientIP = p.flow.SrcIP.String()
 	q.ServerIP = p.flow.DstIP.String()
-	s, err := json.Marshal(&q)
-	if err != nil {
-		p.logger.Error("Error marshaling query event",
-			logrus.Fields{"error": err})
-	}
-	ok := p.publisher.Publish(s)
-	if ok {
-		metrics.Counter("mongodb.events_submitted").Add()
-	} else {
-		p.logger.Debug("Failed to submit event", logrus.Fields{})
-		metrics.Counter("mongodb.events_dropped").Add()
-	}
+	p.publisher.Publish(q)
 }
 
 type msgHeader struct {

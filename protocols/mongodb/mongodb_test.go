@@ -361,9 +361,9 @@ type testPublisher struct {
 	output [][]byte
 }
 
-func (tp *testPublisher) Publish(m []byte) bool {
+func (tp *testPublisher) Publish(data interface{}) {
+	m, _ := json.Marshal(data)
 	tp.output = append(tp.output, m)
-	return true
 }
 
 func newParser(publisher publish.Publisher) sniffer.Consumer {
