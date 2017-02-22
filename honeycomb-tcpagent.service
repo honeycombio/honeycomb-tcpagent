@@ -1,0 +1,11 @@
+[Unit]
+Description=Honeycomb TCP traffic analyzer honeycomb-tcpagent
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/honeycomb-tcpagent -c /etc/honeycomb-tcpagent/honeycomb-tcpagent.conf
+KillMode=process
+Restart=on-failure
+
+[Install]
+Alias=honeycomb-tcpagent honeycomb-tcpagent.service

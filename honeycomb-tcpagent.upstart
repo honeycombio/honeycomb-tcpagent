@@ -1,0 +1,12 @@
+# Upstart job for honeycomb-tcpagent, the TCP traffic analyzer for Honeycomb
+# https://honeycomb.io/
+
+description     "honeycomb-tcpagent Daemon"
+author          "Ben Hartshorne <ben@honeycomb.io>"
+
+start on runlevel [2345]
+stop on runlevel [!2345]
+
+respawn
+
+exec /usr/bin/honeycomb-tcpagent -c /etc/honeycomb-tcpagent/honeycomb-tcpagent.conf
