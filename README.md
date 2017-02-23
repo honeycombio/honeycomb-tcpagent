@@ -1,6 +1,6 @@
 [![Build Status](https://travis-ci.org/honeycombio/honeycomb-tcpagent.svg?branch=master)](https://travis-ci.org/honeycombio/honeycomb-tcpagent)
 
-`honeycomb-tcpagent` captures database network traffic and writes it as structured JSON to stdout, enabling query-level visibility with low overhead. Currently, MongoDB is supported and MySQL is under development. [Get in touch](https://honeycomb.io/help/) if you'd like support for something else!
+`honeycomb-tcpagent` captures database network traffic and forwards it to [Honeycomb](https://honeycomb.io), enabling query-level visibility with low overhead. Currently, MongoDB is supported and MySQL is under development. [Get in touch](https://honeycomb.io/help/) if you'd like support for something else!
 
 [See the documentation](https://honeycomb.io/docs/mongodb/tcp) for instructions on using `honeycomb-tcpagent` to send data to [Honeycomb](https://honeycomb.io).
 
