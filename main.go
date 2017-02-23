@@ -19,24 +19,28 @@ import (
 	flag "github.com/jessevdk/go-flags"
 )
 
+var BuildID string // Set by travis
+
 type RequiredOptions struct {
 	WriteKey string `long:"writekey" short:"k" description:"Team write key"`
 	Dataset  string `long:"dataset" short:"d" description:"Name of the dataset"`
 }
 
 type GlobalOptions struct {
-	Help               bool            `short:"h" long:"help" description:"Show this help message"`
-	Debug              bool            `long:"debug" description:"Print verbose debug logs"`
-	Required           RequiredOptions `group:"Required options"`
-	ConfigFile         string          `short:"c" long:"config" description:"Config file for honeycomb-tcpagent in INI format." no-ini:"true"`
-	APIHost            string          `long:"api_host" description:"Hostname for the Honeycomb API server" default:"https://api.honeycomb.io/"`
-	SampleRate         uint            `long:"samplerate" short:"r" description:"Only send 1 / rate events" default:"1"`
-	MySQL              mysql.Options   `group:"MySQL parser options" namespace:"mysql"`
-	MongoDB            mongodb.Options `group:"MongoDB parser options" namespace:"mongodb"`
-	Sniffer            sniffer.Options `group:"Packet capture options" namespace:"capture"`
-	ParserName         string          `short:"p" long:"parser" default:"mongodb" description:"Which protocol to parse (MySQL or MongoDB)"` // TODO: just support both!
-	StatusInterval     int             `long:"status_interval" default:"60" description:"How frequently to print summary statistics, in seconds"`
-	WriteDefaultConfig bool            `long:"write_default_config" description:"Write a default config file to STDOUT" no-ini:"true"`
+	Debug          bool            `long:"debug" description:"Print verbose debug logs"`
+	Required       RequiredOptions `group:"Required options"`
+	ConfigFile     string          `short:"c" long:"config" description:"Config file for honeycomb-tcpagent in INI format." no-ini:"true"`
+	APIHost        string          `long:"api_host" description:"Hostname for the Honeycomb API server" default:"https://api.honeycomb.io/"`
+	SampleRate     uint            `long:"samplerate" short:"r" description:"Only send 1 / rate events" default:"1"`
+	MySQL          mysql.Options   `group:"MySQL parser options" namespace:"mysql"`
+	MongoDB        mongodb.Options `group:"MongoDB parser options" namespace:"mongodb"`
+	Sniffer        sniffer.Options `group:"Packet capture options" namespace:"capture"`
+	ParserName     string          `short:"p" long:"parser" default:"mongodb" description:"Which protocol to parse (MySQL or MongoDB)"` // TODO: just support both!
+	StatusInterval int             `long:"status_interval" default:"60" description:"How frequently to print summary statistics, in seconds"`
+
+	Help               bool `short:"h" long:"help" description:"Show this help message"`
+	Version            bool `long:"version" description:"Show version"`
+	WriteDefaultConfig bool `long:"write_default_config" description:"Write a default config file to STDOUT" no-ini:"true"`
 }
 
 func main() {
@@ -108,6 +112,14 @@ func parseFlags() (*GlobalOptions, error) {
 	} else if len(extraArgs) != 0 {
 		log.Printf("Unexpected extra arguments: %s\n", strings.Join(extraArgs, " "))
 		return nil, errors.New("")
+	}
+
+	if options.Version {
+		if BuildID == "" {
+			BuildID = "dev"
+		}
+		log.Printf("honeycomb-tcpagent version %s\n", BuildID)
+		os.Exit(0)
 	}
 
 	if options.WriteDefaultConfig {
