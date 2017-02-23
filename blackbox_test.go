@@ -46,7 +46,7 @@ func BenchmarkIngestion(b *testing.B) {
 			WriteKey:  "test",
 			Transport: transport,
 		}
-		tp := publish.NewBufferedPublisher(libhoneyOptions)
+		tp := publish.NewHoneycombPublisher(libhoneyOptions)
 
 		pf := &mongodb.ParserFactory{
 			Options:   mongodb.Options{Port: 27017},
@@ -81,7 +81,7 @@ func TestSampling(t *testing.T) {
 		Transport:  transport,
 		SampleRate: 5,
 	}
-	tp := publish.NewBufferedPublisher(libhoneyOptions)
+	tp := publish.NewHoneycombPublisher(libhoneyOptions)
 
 	pf := &mongodb.ParserFactory{
 		Options:   mongodb.Options{Port: 27017},

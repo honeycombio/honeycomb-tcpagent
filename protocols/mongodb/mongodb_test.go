@@ -158,6 +158,36 @@ func TestParseQueries(t *testing.T) {
 	}
 }
 
+func TestCommandHashing(t *testing.T) {
+	ts := time.Date(2006, 1, 2, 15, 4, 5, 0, time.UTC)
+	collectionName := "db.$cmd"
+	tp := &testPublisher{}
+	pf := ParserFactory{
+		Options:   Options{Port: 27017, ScrubCommand: true},
+		Publisher: tp,
+	}
+	parser := pf.New(defaultFlow())
+	request := request{0, `{
+				"find":   "collection0",
+				"filter": {"rating": {"$gte": 9}, "cuisine": "italian"}
+			}`}
+	response := response{0, []string{`{ }`}}
+	query, err := genQuery(collectionName, request)
+	assert.Nil(t, err)
+	reply, err := genReply(response)
+	assert.Nil(t, err)
+	ms := &messageStream{}
+	ms.Append(query, ts, defaultFlow())
+	ms.Append(reply, ts, defaultFlow().Reverse())
+	parser.On(ms)
+	assert.Equal(t, 1, len(tp.output))
+	var out map[string]interface{}
+	err = json.Unmarshal(tp.output[0], &out)
+	assert.Nil(t, err)
+	assert.Equal(t, out["command"],
+		"d37492dcfdb60a87dfe55da2bdba09fb5675d4b5439e9d74e65ff36ed5e4f091")
+}
+
 func TestParseOldInsert(t *testing.T) {
 	tp := &testPublisher{}
 	parser := newParser(tp)

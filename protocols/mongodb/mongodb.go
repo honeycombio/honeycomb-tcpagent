@@ -1,6 +1,7 @@
 package mongodb
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -20,7 +21,8 @@ import (
 )
 
 type Options struct {
-	Port uint16 `long:"port" description:"MongoDB port" default:"27017"`
+	Port         uint16 `long:"port" description:"MongoDB port" default:"27017"`
+	ScrubCommand bool   `long:"scrub_command" description:"Apply a one-way hash to command contents"`
 }
 
 type Event struct {
@@ -39,12 +41,17 @@ type Event struct {
 	ResponseLength  int      `json:"response_length"`
 	ServerIP        string   `json:"server_ip"`
 	timestamp       time.Time
+	hashCommand     bool
 }
 
-func truncate(d document) ([]byte, error) {
+func marshal(d document, hash bool) ([]byte, error) {
 	b, err := json.Marshal(d)
 	if err != nil {
 		return nil, err
+	}
+	if hash {
+		hashed := []byte(fmt.Sprintf("%x", sha256.Sum256(b)))
+		return hashed, nil
 	}
 	if len(b) > maxDocLength {
 		b = append(b[:maxDocLength-4], " ..."...)
@@ -54,7 +61,7 @@ func truncate(d document) ([]byte, error) {
 
 func (e *Event) MarshalJSON() ([]byte, error) {
 	type Wrapper Event
-	serializedCommand, err := truncate(e.Command)
+	serializedCommand, err := marshal(e.Command, e.hashCommand)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +148,7 @@ func (p *Parser) parseRequest(r io.Reader, ts time.Time) error {
 				"responseTo":    header.ResponseTo,
 				"messageLength": header.MessageLength})
 
-		q := &Event{}
+		q := &Event{hashCommand: p.options.ScrubCommand}
 		q.RequestID = header.RequestID
 		q.timestamp = ts
 		q.RequestLength = len(data) + 16 // Payload length including header

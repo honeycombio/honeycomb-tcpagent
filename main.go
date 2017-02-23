@@ -31,15 +31,17 @@ type GlobalOptions struct {
 	Required       RequiredOptions `group:"Required options"`
 	ConfigFile     string          `short:"c" long:"config" description:"Config file for honeycomb-tcpagent in INI format." no-ini:"true"`
 	APIHost        string          `long:"api_host" description:"Hostname for the Honeycomb API server" default:"https://api.honeycomb.io/"`
-	SampleRate     uint            `long:"samplerate" short:"r" description:"Only send 1 / rate events" default:"1"`
+	SampleRate     uint            `long:"samplerate" short:"r" description:"When sample rate is N, only send 1 / N events" default:"1"`
 	MySQL          mysql.Options   `group:"MySQL parser options" namespace:"mysql"`
 	MongoDB        mongodb.Options `group:"MongoDB parser options" namespace:"mongodb"`
-	Sniffer        sniffer.Options `group:"Packet capture options" namespace:"capture"`
-	ParserName     string          `short:"p" long:"parser" default:"mongodb" description:"Which protocol to parse (MySQL or MongoDB)"` // TODO: just support both!
+	Sniffer        sniffer.Options `group:"Packet capture options (advanced)" namespace:"capture"`
+	ParserName     string          `short:"p" long:"parser" default:"mongodb" description:"Which protocol to parse (MySQL or MongoDB)"` // TODO: just support both
 	StatusInterval int             `long:"status_interval" default:"60" description:"How frequently to print summary statistics, in seconds"`
 
+	// Alternative modes
 	Help               bool `short:"h" long:"help" description:"Show this help message"`
 	Version            bool `long:"version" description:"Show version"`
+	Stdout             bool `long:"stdout" description:"Write parsed data to stdout instead of to Honeycomb, for debugging."`
 	WriteDefaultConfig bool `long:"write_default_config" description:"Write a default config file to STDOUT" no-ini:"true"`
 }
 
@@ -61,7 +63,6 @@ func configureLogging(debug bool) {
 	if debug {
 		logrus.SetLevel(logrus.DebugLevel)
 	}
-	logrus.SetFormatter(&logrus.JSONFormatter{})
 }
 
 func run(options *GlobalOptions) error {
@@ -73,13 +74,19 @@ func run(options *GlobalOptions) error {
 		APIHost:    options.APIHost,
 		SampleRate: options.SampleRate,
 	}
+	var publisher publish.Publisher
+	if options.Stdout {
+		publisher = publish.NewBufferedStdoutPublisher(1024)
+	} else {
+		publisher = publish.NewHoneycombPublisher(libhoneyOptions)
+	}
 
 	if options.ParserName == "mysql" {
 		pf = &mysql.ParserFactory{Options: options.MySQL}
 	} else if options.ParserName == "mongodb" {
 		pf = &mongodb.ParserFactory{
 			Options:   options.MongoDB,
-			Publisher: publish.NewBufferedPublisher(libhoneyOptions),
+			Publisher: publisher,
 		}
 	} else {
 		log.Printf("`%s` isn't a supported parser name.\n", options.ParserName)
@@ -137,23 +144,25 @@ func parseFlags() (*GlobalOptions, error) {
 		}
 	}
 
-	if options.Required.WriteKey == "" {
-		var opt string
-		if options.ConfigFile != "" {
-			opt = "WriteKey"
-		} else {
-			opt = "-k/--writekey"
+	if !options.Stdout {
+		if options.Required.WriteKey == "" {
+			var opt string
+			if options.ConfigFile != "" {
+				opt = "WriteKey"
+			} else {
+				opt = "-k/--writekey"
+			}
+			return nil, fmt.Errorf("Missing required write key option %v", opt)
 		}
-		return nil, fmt.Errorf("Missing required write key option %v", opt)
-	}
-	if options.Required.Dataset == "" {
-		var opt string
-		if options.ConfigFile != "" {
-			opt = "Dataset"
-		} else {
-			opt = "-d/--dataset"
+		if options.Required.Dataset == "" {
+			var opt string
+			if options.ConfigFile != "" {
+				opt = "Dataset"
+			} else {
+				opt = "-d/--dataset"
+			}
+			return nil, fmt.Errorf("Missing required dataset option %v", opt)
 		}
-		return nil, fmt.Errorf("Missing required dataset option %v", opt)
 	}
 
 	return &options, nil
