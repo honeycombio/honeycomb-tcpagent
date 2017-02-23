@@ -28,6 +28,7 @@ func (tr *testTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func BenchmarkIngestion(b *testing.B) {
+	// Read from a pcap file containing ~100K MongoDB queries
 	options := sniffer.Options{
 		SourceType:   "offline",
 		Device:       "any",
@@ -59,4 +60,39 @@ func BenchmarkIngestion(b *testing.B) {
 		fmt.Println("event count", transport.eventCount)
 		transport.Unlock()
 	}
+}
+
+func TestSampling(t *testing.T) {
+	// Read from a pcap file containing ~100K MongoDB queries
+	options := sniffer.Options{
+		SourceType:   "offline",
+		Device:       "any",
+		SnapLen:      65535,
+		BufSizeMb:    30,
+		FlushTimeout: 60,
+		PcapFile:     "testdata/tcpd_any.pcap",
+	}
+
+	transport := &testTransport{}
+	libhoneyOptions := libhoney.Config{
+		APIHost:    "http://localhost:9999",
+		Dataset:    "test",
+		WriteKey:   "test",
+		Transport:  transport,
+		SampleRate: 5,
+	}
+	tp := publish.NewBufferedPublisher(libhoneyOptions)
+
+	pf := &mongodb.ParserFactory{
+		Options:   mongodb.Options{Port: 27017},
+		Publisher: tp,
+	}
+	s, _ := sniffer.New(options, pf)
+	s.Run()
+	transport.Lock()
+	// TODO actually wait for all publishing to finish
+	assert.True(t, transport.eventCount > 18000)
+	assert.True(t, transport.eventCount < 22000)
+	fmt.Println("event count", transport.eventCount)
+	transport.Unlock()
 }

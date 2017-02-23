@@ -28,11 +28,15 @@ func NewBufferedPublisher(config libhoney.Config) *BufferedPublisher {
 
 func (bp *BufferedPublisher) Run() {
 	for r := range libhoney.Responses() {
-		if r.Err != nil && r.Err.Error() == "queue overflow" {
-			metrics.Counter("publish.events_dropped").Add()
-		} else if r.Err != nil {
-			logrus.WithError(r.Err).Warning("Error publishing event")
-			metrics.Counter("publish.event_errors").Add()
+		if r.Err != nil {
+			if r.Err.Error() == "queue overflow" {
+				metrics.Counter("publish.events_dropped").Add()
+			} else if r.Err.Error() == "event dropped due to sampling" {
+				metrics.Counter("publish.events_sampled_out").Add()
+			} else {
+				logrus.WithError(r.Err).Warning("Error publishing event")
+				metrics.Counter("publish.event_errors").Add()
+			}
 		} else if r.StatusCode != 200 {
 			logrus.WithFields(logrus.Fields{
 				"http_status": r.StatusCode,

@@ -30,6 +30,7 @@ type GlobalOptions struct {
 	Required           RequiredOptions `group:"Required options"`
 	ConfigFile         string          `short:"c" long:"config" description:"Config file for honeycomb-tcpagent in INI format." no-ini:"true"`
 	APIHost            string          `long:"api_host" description:"Hostname for the Honeycomb API server" default:"https://api.honeycomb.io/"`
+	SampleRate         uint            `long:"samplerate" short:"r" description:"Only send 1 / rate events" default:"1"`
 	MySQL              mysql.Options   `group:"MySQL parser options" namespace:"mysql"`
 	MongoDB            mongodb.Options `group:"MongoDB parser options" namespace:"mongodb"`
 	Sniffer            sniffer.Options `group:"Packet capture options" namespace:"capture"`
@@ -63,9 +64,10 @@ func run(options *GlobalOptions) error {
 	var pf sniffer.ConsumerFactory
 
 	libhoneyOptions := libhoney.Config{
-		WriteKey: options.Required.WriteKey,
-		Dataset:  options.Required.Dataset,
-		APIHost:  options.APIHost,
+		WriteKey:   options.Required.WriteKey,
+		Dataset:    options.Required.Dataset,
+		APIHost:    options.APIHost,
+		SampleRate: options.SampleRate,
 	}
 
 	if options.ParserName == "mysql" {
