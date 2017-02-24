@@ -6,6 +6,8 @@ After=network.target
 ExecStart=/usr/bin/honeycomb-tcpagent -c /etc/honeycomb-tcpagent/honeycomb-tcpagent.conf
 KillMode=process
 Restart=on-failure
+User=honeycomb
+Group=honeycomb
 
 [Install]
 Alias=honeycomb-tcpagent honeycomb-tcpagent.service

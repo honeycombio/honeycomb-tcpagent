@@ -28,7 +28,8 @@ fpm -s dir -n honeycomb-tcpagent \
     -p $GOPATH/bin \
     -v $version \
     -t $pkg_type \
-    --post-install=./postinst.sh \
+    --pre-install=./preinstall \
+    --post-install=./postinstall \
     $GOPATH/bin/honeycomb-tcpagent=/usr/bin/honeycomb-tcpagent \
     ./honeycomb-tcpagent.upstart=/etc/init/honeycomb-tcpagent.conf \
     ./honeycomb-tcpagent.service=/lib/systemd/system/honeycomb-tcpagent.service \
