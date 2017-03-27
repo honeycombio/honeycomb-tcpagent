@@ -15,3 +15,5 @@ sudo setcap cap_net_raw=eip $GOPATH/bin/honeycomb-tcpagent
 ```
 
 Then run `honeycomb-tcpagent` to start capturing traffic.
+
+See docs/internal.md for some implementation notes.

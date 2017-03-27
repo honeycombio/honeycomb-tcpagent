@@ -127,6 +127,8 @@ func readPacket(r io.Reader) (*mySQLPacket, error) {
 	p := mySQLPacket{}
 	p.PayloadLength = int(buf[0]) + int(buf[1])<<8 + int(buf[2])<<16
 	p.SequenceID = buf[3]
+	// TODO: we need to guard against unsafe values of p.PayloadLength here
+	// (as in the MongoDB parser's use of newSafeBuffer)
 	p.payload = make([]byte, p.PayloadLength)
 
 	if p.PayloadLength == 0 {
