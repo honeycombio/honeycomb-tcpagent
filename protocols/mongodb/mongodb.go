@@ -356,9 +356,6 @@ func readRawMsg(r io.Reader) (*msgHeader, []byte, error) {
 	}
 	for {
 		n, err := r.Read(data[bytesRead:])
-		if err != nil {
-			return nil, nil, err
-		}
 		bytesRead += n
 		if bytesRead == shouldRead {
 			break

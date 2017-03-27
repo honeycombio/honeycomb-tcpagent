@@ -9,6 +9,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"testing/quick"
 	"time"
 
@@ -233,6 +234,14 @@ func TestRemainingBytesDiscardedOnError(t *testing.T) {
 	if err := quick.Check(f, nil); err != nil {
 		t.Error("Not all bytes read from input", err)
 	}
+}
+
+func TestReadRawMsg(t *testing.T) {
+	q, err := genQuery("collection", request{0, `{"isMaster" :1}`})
+	assert.Nil(t, err)
+	r := iotest.DataErrReader(bytes.NewReader(q))
+	_, _, err = readRawMsg(r)
+	assert.Nil(t, err)
 }
 
 func genQuery(collectionName string, request request) ([]byte, error) {
