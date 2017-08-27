@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/honeycombio/honeycomb-tcpagent/protocols/common"
 
 	"gopkg.in/mgo.v2/bson"
 )
@@ -220,7 +221,7 @@ func (e *errReader) Document() document {
 		return nil
 	}
 	var buf []byte
-	buf, e.err = newSafeBuffer(int(length))
+	buf, e.err = common.NewSafeBuffer(int(length), maxBufSize)
 	if e.err != nil {
 		return nil
 	}

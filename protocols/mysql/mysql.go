@@ -11,8 +11,12 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/honeycombio/honeycomb-tcpagent/logging"
+	"github.com/honeycombio/honeycomb-tcpagent/protocols/common"
 	"github.com/honeycombio/honeycomb-tcpagent/sniffer"
 )
+
+const maxBufSize = 32 * 1024 * 1024 // chosen arbitrarily for now
 
 type Options struct {
 	Port uint16 `long:"port" description:"MySQL port" default:"3306"`
@@ -31,6 +35,7 @@ func (pf *ParserFactory) New(flow sniffer.IPPortTuple) sniffer.Consumer {
 	return &Parser{
 		options: pf.Options,
 		flow:    flow,
+		logger:  logging.NewLogger(logrus.Fields{"flow": flow, "component": "mysql"}),
 	}
 }
 
@@ -44,13 +49,14 @@ type Parser struct {
 	flow              sniffer.IPPortTuple
 	currentQueryEvent QueryEvent
 	state             parseState
+	logger            *logging.Logger
 }
 
 func (p *Parser) On(ms sniffer.MessageStream) {
 	for {
 		m, ok := ms.Next()
 		if !ok {
-			logrus.WithFields(logrus.Fields{"flow": p.flow}).Debug("Messages closed")
+			p.logger.Debug("Messages closed", logrus.Fields{})
 			return
 		}
 		toServer := m.Flow().DstPort == p.options.Port
@@ -91,25 +97,37 @@ const (
 	parseStateChompRows
 )
 
-var stateMap = map[parseState]string{
-	0: "parseStateChompFirstPacket",
-	1: "parseStateChompColumnDefs",
-	2: "parseStateChompRows",
+func (state parseState) String() string {
+	switch state {
+	case parseStateChompFirstPacket:
+		return "parseStateChompFirstPacket"
+	case parseStateChompColumnDefs:
+		return "parseStateChompColumnDefs"
+	case parseStateChompRows:
+		return "parseStateChompRows"
+	}
+	return "parseStateUnknown"
 }
 
 func (p *Parser) parseRequestStream(r io.Reader, timestamp time.Time) error {
-	logrus.Debug("Parsing request stream")
+	p.logger.Debug("Parsing request stream", logrus.Fields{})
 	for {
 		packet, err := readPacket(r)
 		if err != nil {
+			if err != io.EOF {
+				p.logger.Debug("Error parsing request packet",
+					logrus.Fields{"err": err})
+			}
 			return err
 		}
 		if packet.FirstPayloadByte() == COM_QUERY {
 			p.currentQueryEvent.Query = string(packet.payload[1:])
 			p.currentQueryEvent.Timestamp = timestamp
-			logrus.WithFields(logrus.Fields{"query": p.currentQueryEvent.Query}).Debug("Parsed query")
+			p.logger.Debug("parsed query",
+				logrus.Fields{"query": p.currentQueryEvent.Query})
 		} else {
-			logrus.WithFields(logrus.Fields{"command": packet.payload[0]}).Debug("Skipping non-QUERY command")
+			p.logger.Debug("Skipping non-QUERY command",
+				logrus.Fields{"command": packet.payload[0]})
 			// TODO: usefully handle some non-query packets
 		}
 	}
@@ -118,21 +136,22 @@ func (p *Parser) parseRequestStream(r io.Reader, timestamp time.Time) error {
 func readPacket(r io.Reader) (*mySQLPacket, error) {
 	buf := make([]byte, 4)
 	_, err := r.Read(buf)
-	if err == io.EOF {
-		return nil, err
-	} else if err != nil {
-		logrus.WithFields(logrus.Fields{"header": buf, "err": err}).Debug("Bad MySQL packet header")
+	if err != nil {
 		return nil, err
 	}
 	p := mySQLPacket{}
 	p.PayloadLength = int(buf[0]) + int(buf[1])<<8 + int(buf[2])<<16
 	p.SequenceID = buf[3]
-	// TODO: we need to guard against unsafe values of p.PayloadLength here
-	// (as in the MongoDB parser's use of newSafeBuffer)
-	p.payload = make([]byte, p.PayloadLength)
 
 	if p.PayloadLength == 0 {
-		return nil, errors.New("Bad MySQL packet header")
+		return nil, fmt.Errorf("Bad MySQL packet header(payload length 0): %X", buf)
+	}
+
+	// TODO: we need to guard against unsafe values of p.PayloadLength here
+	// (as in the MongoDB parser's use of newSafeBuffer)
+	p.payload, err = common.NewSafeBuffer(p.PayloadLength, maxBufSize)
+	if err != nil {
+		return nil, err
 	}
 
 	bytesRead := 0
@@ -155,18 +174,20 @@ func (p *Parser) parseResponseStream(r io.Reader, timestamp time.Time) error {
 		packet, err := readPacket(r)
 		if err != nil {
 			if err != io.EOF {
-				logrus.WithFields(logrus.Fields{
-					"err":   err,
-					"state": p.state}).Error("Error parsing packet")
+				p.logger.Debug("Error parsing response packet",
+					logrus.Fields{
+						"err":   err,
+						"state": p.state})
 			}
 			return err
 		}
-		logrus.WithFields(logrus.Fields{
-			"flow":             p.flow,
-			"firstPayloadByte": packet.FirstPayloadByte(),
-			"sequenceID":       packet.SequenceID,
-			"payloadLength":    packet.PayloadLength,
-			"parserState":      stateMap[p.state]}).Debug("Parsed response packet")
+		p.logger.Debug("Parsed response packet",
+			logrus.Fields{
+				"flow":             p.flow,
+				"firstPayloadByte": packet.FirstPayloadByte(),
+				"sequenceID":       packet.SequenceID,
+				"payloadLength":    packet.PayloadLength,
+				"parserState":      p.state})
 		switch p.state {
 		case parseStateChompFirstPacket:
 			if packet.FirstPayloadByte() == OK {
@@ -182,7 +203,8 @@ func (p *Parser) parseResponseStream(r io.Reader, timestamp time.Time) error {
 			} else {
 				columnCount, err := readLengthEncodedInteger(packet.FirstPayloadByte(), packet.payload[1:])
 				if err != nil {
-					logrus.WithError(err).Error("Error parsing column count")
+					p.logger.Error("Error parsing column count",
+						logrus.Fields{"error": err})
 					return err
 				}
 				p.currentQueryEvent.ColumnsSent = int(columnCount)
@@ -221,7 +243,7 @@ func (p *Parser) parseResponseStream(r io.Reader, timestamp time.Time) error {
 			}
 		}
 		if err != nil {
-			logrus.WithError(err).Error("Error parsing response stream")
+			p.logger.Error("Error parsing response stream", logrus.Fields{"error": err})
 		}
 	}
 }
@@ -256,7 +278,7 @@ func (p *Parser) QueryEventDone() {
 	p.currentQueryEvent.ServerIP = p.flow.DstIP.String()
 	s, err := json.Marshal(&p.currentQueryEvent)
 	if err != nil {
-		logrus.Error("Error marshaling query event", err)
+		p.logger.Error("Error marshaling query event", logrus.Fields{"err": err})
 	}
 	io.WriteString(os.Stdout, string(s))
 	io.WriteString(os.Stdout, "\n")

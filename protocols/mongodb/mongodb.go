@@ -15,10 +15,17 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/codahale/metrics"
 	"github.com/honeycombio/honeycomb-tcpagent/logging"
+	"github.com/honeycombio/honeycomb-tcpagent/protocols/common"
 	"github.com/honeycombio/honeycomb-tcpagent/protocols/mongodb/queryshape"
 	"github.com/honeycombio/honeycomb-tcpagent/publish"
 	"github.com/honeycombio/honeycomb-tcpagent/sniffer"
 )
+
+// Max BSON document size is 16MB.
+// https://docs.mongodb.com/manual/reference/limits/
+// For simplicity, bound buffer size at 32MB so that headers and so on fit
+// too.
+const maxBufSize = 32 * 1024 * 1024
 
 type Options struct {
 	Port         uint16 `long:"port" description:"MongoDB port" default:"27017"`
@@ -350,7 +357,7 @@ func readRawMsg(r io.Reader) (*msgHeader, []byte, error) {
 	}
 	shouldRead := int(header.MessageLength - 16)
 	bytesRead := 0
-	data, err := newSafeBuffer(shouldRead)
+	data, err := common.NewSafeBuffer(shouldRead, maxBufSize)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -365,21 +372,6 @@ func readRawMsg(r io.Reader) (*msgHeader, []byte, error) {
 		}
 	}
 	return &header, data, nil
-}
-
-// Ensure that we don't try to allocate crazy amounts of memory if we find
-// ourselves parsing a bad packet.
-func newSafeBuffer(bufsize int) ([]byte, error) {
-	// Max BSON document size is 16MB.
-	// https://docs.mongodb.com/manual/reference/limits/
-	// For simplicity, bound buffer size at 32MB so that headers and so on fit
-	// too.
-	// TODO: Can you put multiple large documents in one insert or reply and
-	// exceed this limit?
-	if (bufsize < 0) || (bufsize > 32*1024*1024) {
-		return nil, fmt.Errorf("Invalid buffer size %d", bufsize)
-	}
-	return make([]byte, bufsize), nil
 }
 
 func extractCommandType(m document) (cmd string, collection string, ok bool) {
