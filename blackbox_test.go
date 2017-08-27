@@ -1,32 +1,30 @@
 package main_test
 
 import (
-	"bytes"
 	"fmt"
-	"io/ioutil"
-	"net/http"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/honeycombio/honeycomb-tcpagent/protocols/mongodb"
-	"github.com/honeycombio/honeycomb-tcpagent/publish"
 	"github.com/honeycombio/honeycomb-tcpagent/sniffer"
-	libhoney "github.com/honeycombio/libhoney-go"
 	"github.com/stretchr/testify/assert"
 )
 
-type testTransport struct {
+type testPublisher struct {
 	eventCount int
 	sync.Mutex
 }
 
-func (tr *testTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	tr.Lock()
-	tr.eventCount++
-	tr.Unlock()
-	return &http.Response{Body: ioutil.NopCloser(bytes.NewReader(nil)), StatusCode: 200}, nil
+func (tp *testPublisher) Publish(data interface{}, timestamp time.Time) {
+	tp.Lock()
+	tp.eventCount++
+	tp.Unlock()
 }
 
+// TODO: this needs some work. The benchmark currently elides serialization,
+// which happens in libhoney. We should also have a similar benchmark for
+// MySQL.
 func BenchmarkIngestion(b *testing.B) {
 	// Read from a pcap file containing ~100K MongoDB queries
 	options := sniffer.Options{
@@ -39,14 +37,7 @@ func BenchmarkIngestion(b *testing.B) {
 	}
 
 	for i := 0; i < b.N; i++ {
-		transport := &testTransport{}
-		libhoneyOptions := libhoney.Config{
-			APIHost:   "http://localhost:9999",
-			Dataset:   "test",
-			WriteKey:  "test",
-			Transport: transport,
-		}
-		tp := publish.NewHoneycombPublisher(libhoneyOptions)
+		tp := &testPublisher{}
 
 		pf := &mongodb.ParserFactory{
 			Options:   mongodb.Options{Port: 27017},
@@ -54,45 +45,10 @@ func BenchmarkIngestion(b *testing.B) {
 		}
 		s, _ := sniffer.New(options, pf)
 		s.Run()
-		transport.Lock()
+		tp.Lock()
 		// TODO actually wait for all publishing to finish
-		assert.True(b, transport.eventCount > 70000)
-		fmt.Println("event count", transport.eventCount)
-		transport.Unlock()
+		assert.True(b, tp.eventCount > 70000)
+		fmt.Println("event count", tp.eventCount)
+		tp.Unlock()
 	}
-}
-
-func TestSampling(t *testing.T) {
-	// Read from a pcap file containing ~100K MongoDB queries
-	options := sniffer.Options{
-		SourceType:   "offline",
-		Device:       "any",
-		SnapLen:      65535,
-		BufSizeMb:    30,
-		FlushTimeout: 60,
-		PcapFile:     "testdata/tcpd_any.pcap",
-	}
-
-	transport := &testTransport{}
-	libhoneyOptions := libhoney.Config{
-		APIHost:    "http://localhost:9999",
-		Dataset:    "test",
-		WriteKey:   "test",
-		Transport:  transport,
-		SampleRate: 5,
-	}
-	tp := publish.NewHoneycombPublisher(libhoneyOptions)
-
-	pf := &mongodb.ParserFactory{
-		Options:   mongodb.Options{Port: 27017},
-		Publisher: tp,
-	}
-	s, _ := sniffer.New(options, pf)
-	s.Run()
-	transport.Lock()
-	// TODO actually wait for all publishing to finish
-	assert.True(t, transport.eventCount > 18000)
-	assert.True(t, transport.eventCount < 22000)
-	fmt.Println("event count", transport.eventCount)
-	transport.Unlock()
 }
