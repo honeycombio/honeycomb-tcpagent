@@ -20,12 +20,12 @@ type HoneycombPublisher struct{}
 func NewHoneycombPublisher(config libhoney.Config) *HoneycombPublisher {
 	libhoney.Init(config)
 
-	bp := &HoneycombPublisher{}
-	go bp.Run()
-	return bp
+	hp := &HoneycombPublisher{}
+	go hp.Run()
+	return hp
 }
 
-func (bp *HoneycombPublisher) Run() {
+func (hp *HoneycombPublisher) Run() {
 	for r := range libhoney.Responses() {
 		if r.Err != nil {
 			if r.Err.Error() == "queue overflow" {
@@ -48,7 +48,7 @@ func (bp *HoneycombPublisher) Run() {
 	}
 }
 
-func (bp *HoneycombPublisher) Publish(data interface{}, timestamp time.Time) {
+func (hp *HoneycombPublisher) Publish(data interface{}, timestamp time.Time) {
 	ev := libhoney.NewEvent()
 	ev.Add(data)
 	ev.Timestamp = timestamp

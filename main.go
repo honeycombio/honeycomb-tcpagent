@@ -82,7 +82,10 @@ func run(options *GlobalOptions) error {
 	}
 
 	if options.ParserName == "mysql" {
-		pf = &mysql.ParserFactory{Options: options.MySQL}
+		pf = &mysql.ParserFactory{
+			Options:   options.MySQL,
+			Publisher: publisher,
+		}
 	} else if options.ParserName == "mongodb" {
 		pf = &mongodb.ParserFactory{
 			Options:   options.MongoDB,

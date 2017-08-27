@@ -42,10 +42,6 @@ unfinished parts:
   information, such as error codes.
 - Doesn't parse non-QUERY packets sent from the client to the server.
 - Doesn't do any query normalization.
-- Currently, it just synchronously writes decoded output to stdout instead of using the
-  `Publisher` interface.
-- It doesn't guard against trying to allocate a huge buffer in readPacket() if the
-  decoded payloadLength is wrong.
 - It doesn't properly handle empty result sets (i.e., queries that return no
   rows).
 - It may not properly handle huge result sets that span multiple *MySQL*

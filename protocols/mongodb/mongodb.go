@@ -94,10 +94,10 @@ func (pf *ParserFactory) New(flow sniffer.IPPortTuple) sniffer.Consumer {
 	}
 	return &Parser{
 		options:   pf.Options,
+		publisher: pf.Publisher,
 		flow:      flow,
 		qcache:    newQCache(128),
 		logger:    logging.NewLogger(logrus.Fields{"flow": flow, "component": "mongodb"}),
-		publisher: pf.Publisher,
 	}
 }
 
@@ -108,10 +108,10 @@ func (pf *ParserFactory) BPFFilter() string {
 // Parser implements sniffer.Consumer
 type Parser struct {
 	options   Options
+	publisher publish.Publisher
 	flow      sniffer.IPPortTuple
 	qcache    *QCache
 	logger    *logging.Logger
-	publisher publish.Publisher
 }
 
 func (p *Parser) On(ms sniffer.MessageStream) {

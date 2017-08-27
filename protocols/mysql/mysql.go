@@ -3,16 +3,15 @@ package mysql
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/honeycombio/honeycomb-tcpagent/logging"
 	"github.com/honeycombio/honeycomb-tcpagent/protocols/common"
+	"github.com/honeycombio/honeycomb-tcpagent/publish"
 	"github.com/honeycombio/honeycomb-tcpagent/sniffer"
 )
 
@@ -25,7 +24,8 @@ type Options struct {
 // ParserFactory implements sniffer.ConsumerFactory
 // TODO: this way of setting things up is kind of confusing
 type ParserFactory struct {
-	Options Options
+	Options   Options
+	Publisher publish.Publisher
 }
 
 func (pf *ParserFactory) New(flow sniffer.IPPortTuple) sniffer.Consumer {
@@ -33,9 +33,10 @@ func (pf *ParserFactory) New(flow sniffer.IPPortTuple) sniffer.Consumer {
 		flow = flow.Reverse()
 	}
 	return &Parser{
-		options: pf.Options,
-		flow:    flow,
-		logger:  logging.NewLogger(logrus.Fields{"flow": flow, "component": "mysql"}),
+		options:   pf.Options,
+		publisher: pf.Publisher,
+		flow:      flow,
+		logger:    logging.NewLogger(logrus.Fields{"flow": flow, "component": "mysql"}),
 	}
 }
 
@@ -46,6 +47,7 @@ func (pf *ParserFactory) BPFFilter() string {
 // Parser implements sniffer.Consumer
 type Parser struct {
 	options           Options
+	publisher         publish.Publisher
 	flow              sniffer.IPPortTuple
 	currentQueryEvent QueryEvent
 	state             parseState
@@ -276,12 +278,7 @@ func readLengthEncodedInteger(firstByte byte, nextBytes []byte) (n uint64, err e
 func (p *Parser) QueryEventDone() {
 	p.currentQueryEvent.ClientIP = p.flow.SrcIP.String()
 	p.currentQueryEvent.ServerIP = p.flow.DstIP.String()
-	s, err := json.Marshal(&p.currentQueryEvent)
-	if err != nil {
-		p.logger.Error("Error marshaling query event", logrus.Fields{"err": err})
-	}
-	io.WriteString(os.Stdout, string(s))
-	io.WriteString(os.Stdout, "\n")
+	p.publisher.Publish(p.currentQueryEvent, p.currentQueryEvent.Timestamp)
 	p.currentQueryEvent = QueryEvent{}
 	p.state = parseStateChompFirstPacket
 }
