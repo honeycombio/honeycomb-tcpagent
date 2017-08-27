@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -48,7 +47,8 @@ type GlobalOptions struct {
 func main() {
 	options, err := parseFlags()
 	if err != nil {
-		log.Println("Error parsing options:", err)
+		fmt.Println("Error parsing options:", err)
+		usage()
 		os.Exit(1)
 	}
 	configureLogging(options.Debug)
@@ -92,18 +92,18 @@ func run(options *GlobalOptions) error {
 			Publisher: publisher,
 		}
 	} else {
-		log.Printf("`%s` isn't a supported parser name.\n", options.ParserName)
-		log.Println("Valid parsers are `mongodb` and `mysql`.")
+		fmt.Printf("`%s` isn't a supported parser name.\n", options.ParserName)
+		fmt.Println("Valid parsers are `mongodb` and `mysql`.")
 		os.Exit(1)
 	}
 
 	sniffer, err := sniffer.New(options.Sniffer, pf)
 	if err != nil {
-		log.Println("Failed to configure listener.")
-		log.Printf("Error: %s\n", err)
+		fmt.Println("Failed to configure listener.")
+		fmt.Printf("Error: %s\n", err)
 		return err
 	}
-	log.Println("Listening for traffic")
+	fmt.Println("Listening for traffic")
 	sniffer.Run()
 	return nil
 }
@@ -120,7 +120,7 @@ func parseFlags() (*GlobalOptions, error) {
 			return nil, err
 		}
 	} else if len(extraArgs) != 0 {
-		log.Printf("Unexpected extra arguments: %s\n", strings.Join(extraArgs, " "))
+		fmt.Printf("Unexpected extra arguments: %s\n", strings.Join(extraArgs, " "))
 		return nil, errors.New("")
 	}
 
@@ -128,7 +128,7 @@ func parseFlags() (*GlobalOptions, error) {
 		if BuildID == "" {
 			BuildID = "dev"
 		}
-		log.Printf("honeycomb-tcpagent version %s\n", BuildID)
+		fmt.Printf("honeycomb-tcpagent version %s\n", BuildID)
 		os.Exit(0)
 	}
 
@@ -169,6 +169,10 @@ func parseFlags() (*GlobalOptions, error) {
 	}
 
 	return &options, nil
+}
+
+func usage() {
+	flag.NewParser(&GlobalOptions{}, flag.Default).WriteHelp(os.Stdout)
 }
 
 func logMetrics(interval int) {
